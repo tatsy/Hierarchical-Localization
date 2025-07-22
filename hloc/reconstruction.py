@@ -37,17 +37,17 @@ def import_images(
 ):
     logger.info("Importing images into the database...")
     if options is None:
-        options = {}
+        options = pycolmap.ImageReaderOptions()
     images = list(image_dir.iterdir())
     if len(images) == 0:
         raise IOError(f"No images found in {image_dir}.")
     with pycolmap.ostream():
         pycolmap.import_images(
-            database_path,
-            image_dir,
+            str(database_path),
+            str(image_dir),
             camera_mode,
-            image_list=image_list or [],
-            options=options,
+            image_list or [],
+            options,
         )
 
 
@@ -76,7 +76,10 @@ def run_reconstruction(
     with OutputCapture(verbose):
         with pycolmap.ostream():
             reconstructions = pycolmap.incremental_mapping(
-                database_path, image_dir, models_path, options=options
+                str(database_path),
+                str(image_dir),
+                str(models_path),
+                options=options,
             )
 
     if len(reconstructions) == 0:
@@ -116,6 +119,7 @@ def main(
     image_list: Optional[List[str]] = None,
     image_options: Optional[Dict[str, Any]] = None,
     mapper_options: Optional[Dict[str, Any]] = None,
+    skip_reconstruction: bool = False,
 ) -> pycolmap.Reconstruction:
     assert features.exists(), features
     assert pairs.exists(), pairs
@@ -138,6 +142,11 @@ def main(
     )
     if not skip_geometric_verification:
         estimation_and_geometric_verification(database, pairs, verbose)
+
+    if skip_reconstruction:
+        logger.info("Skipping reconstruction as requested.")
+        return None
+
     reconstruction = run_reconstruction(
         sfm_dir, database, image_dir, verbose, mapper_options
     )

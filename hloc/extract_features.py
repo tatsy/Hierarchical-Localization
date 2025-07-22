@@ -11,7 +11,7 @@ import h5py
 import numpy as np
 import PIL.Image
 import torch
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from . import extractors, logger
 from .utils.base_model import dynamic_load
@@ -233,10 +233,10 @@ class ImageDataset(torch.utils.data.Dataset):
 def main(
     conf: Dict,
     image_dir: Path,
-    export_dir: Optional[Path] = None,
+    export_dir: Path | None = None,
     as_half: bool = True,
     image_list: Optional[Union[Path, List[str]]] = None,
-    feature_path: Optional[Path] = None,
+    feature_path: Path | None = None,
     overwrite: bool = False,
 ) -> Path:
     logger.info(
@@ -245,7 +245,9 @@ def main(
 
     dataset = ImageDataset(image_dir, conf["preprocessing"], image_list)
     if feature_path is None:
+        assert export_dir is not None
         feature_path = Path(export_dir, conf["output"] + ".h5")
+
     feature_path.parent.mkdir(exist_ok=True, parents=True)
     skip_names = set(
         list_h5_names(feature_path) if feature_path.exists() and not overwrite else ()
@@ -260,11 +262,15 @@ def main(
     model = Model(conf["model"]).eval().to(device)
 
     loader = torch.utils.data.DataLoader(
-        dataset, num_workers=1, shuffle=False, pin_memory=True
+        dataset,
+        shuffle=False,
+        num_workers=1,
     )
-    for idx, data in enumerate(tqdm(loader)):
+
+    for idx, data in enumerate(tqdm(loader, desc="Extracting features")):
         name = dataset.names[idx]
-        pred = model({"image": data["image"].to(device, non_blocking=True)})
+
+        pred = model({"image": data["image"].to(device)})
         pred = {k: v[0].cpu().numpy() for k, v in pred.items()}
 
         pred["image_size"] = original_size = data["original_size"][0].numpy()
@@ -287,11 +293,14 @@ def main(
             try:
                 if name in fd:
                     del fd[name]
+
                 grp = fd.create_group(name)
                 for k, v in pred.items():
                     grp.create_dataset(k, data=v)
+
                 if "keypoints" in pred:
                     grp["keypoints"].attrs["uncertainty"] = uncertainty
+
             except OSError as error:
                 if "No space left on device" in error.args[0]:
                     logger.error(
@@ -303,7 +312,7 @@ def main(
 
         del pred
 
-    logger.info("Finished exporting features.")
+    # logger.info("Finished exporting features.")
     return feature_path
 
 

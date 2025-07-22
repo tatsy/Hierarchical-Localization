@@ -243,7 +243,7 @@ def match_from_paths(
     )
     writer_queue = WorkQueue(partial(writer_fn, match_path=match_path), 5)
 
-    for idx, data in enumerate(tqdm(loader, smoothing=0.1)):
+    for idx, data in enumerate(tqdm(loader, desc="Matching features")):
         data = {
             k: v if k.startswith("image") else v.to(device, non_blocking=True)
             for k, v in data.items()
