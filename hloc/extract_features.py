@@ -4,7 +4,7 @@ import glob
 import pprint
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict, List, Optional, Union
+from typing import Any
 
 import cv2
 import h5py
@@ -26,153 +26,153 @@ line using their name. Each is a dictionary with the following entries:
     - preprocessing: how to preprocess the images read from disk.
 """
 confs = {
-    "superpoint_aachen": {
-        "output": "feats-superpoint-n4096-r1024",
-        "model": {
-            "name": "superpoint",
-            "nms_radius": 3,
-            "max_keypoints": 4096,
+    'superpoint_aachen': {
+        'output': 'feats-superpoint-n4096-r1024',
+        'model': {
+            'name': 'superpoint',
+            'nms_radius': 3,
+            'max_keypoints': 4096,
         },
-        "preprocessing": {
-            "grayscale": True,
-            "resize_max": 1024,
+        'preprocessing': {
+            'grayscale': True,
+            'resize_max': 1024,
         },
     },
     # Resize images to 1600px even if they are originally smaller.
     # Improves the keypoint localization if the images are of good quality.
-    "superpoint_max": {
-        "output": "feats-superpoint-n4096-rmax1600",
-        "model": {
-            "name": "superpoint",
-            "nms_radius": 3,
-            "max_keypoints": 4096,
+    'superpoint_max': {
+        'output': 'feats-superpoint-n4096-rmax1600',
+        'model': {
+            'name': 'superpoint',
+            'nms_radius': 3,
+            'max_keypoints': 4096,
         },
-        "preprocessing": {
-            "grayscale": True,
-            "resize_max": 1600,
-            "resize_force": True,
-        },
-    },
-    "superpoint_inloc": {
-        "output": "feats-superpoint-n4096-r1600",
-        "model": {
-            "name": "superpoint",
-            "nms_radius": 4,
-            "max_keypoints": 4096,
-        },
-        "preprocessing": {
-            "grayscale": True,
-            "resize_max": 1600,
+        'preprocessing': {
+            'grayscale': True,
+            'resize_max': 1600,
+            'resize_force': True,
         },
     },
-    "r2d2": {
-        "output": "feats-r2d2-n5000-r1024",
-        "model": {
-            "name": "r2d2",
-            "max_keypoints": 5000,
+    'superpoint_inloc': {
+        'output': 'feats-superpoint-n4096-r1600',
+        'model': {
+            'name': 'superpoint',
+            'nms_radius': 4,
+            'max_keypoints': 4096,
         },
-        "preprocessing": {
-            "grayscale": False,
-            "resize_max": 1024,
-        },
-    },
-    "d2net-ss": {
-        "output": "feats-d2net-ss",
-        "model": {
-            "name": "d2net",
-            "multiscale": False,
-        },
-        "preprocessing": {
-            "grayscale": False,
-            "resize_max": 1600,
+        'preprocessing': {
+            'grayscale': True,
+            'resize_max': 1600,
         },
     },
-    "sift": {
-        "output": "feats-sift",
-        "model": {"name": "dog"},
-        "preprocessing": {
-            "grayscale": True,
-            "resize_max": 1600,
+    'r2d2': {
+        'output': 'feats-r2d2-n5000-r1024',
+        'model': {
+            'name': 'r2d2',
+            'max_keypoints': 5000,
+        },
+        'preprocessing': {
+            'grayscale': False,
+            'resize_max': 1024,
         },
     },
-    "sosnet": {
-        "output": "feats-sosnet",
-        "model": {"name": "dog", "descriptor": "sosnet"},
-        "preprocessing": {
-            "grayscale": True,
-            "resize_max": 1600,
+    'd2net-ss': {
+        'output': 'feats-d2net-ss',
+        'model': {
+            'name': 'd2net',
+            'multiscale': False,
+        },
+        'preprocessing': {
+            'grayscale': False,
+            'resize_max': 1600,
         },
     },
-    "disk": {
-        "output": "feats-disk",
-        "model": {
-            "name": "disk",
-            "max_keypoints": 5000,
-        },
-        "preprocessing": {
-            "grayscale": False,
-            "resize_max": 1600,
+    'sift': {
+        'output': 'feats-sift',
+        'model': {'name': 'dog'},
+        'preprocessing': {
+            'grayscale': True,
+            'resize_max': 1600,
         },
     },
-    "aliked-n16": {
-        "output": "feats-aliked-n16",
-        "model": {
-            "name": "aliked",
-            "model_name": "aliked-n16",
+    'sosnet': {
+        'output': 'feats-sosnet',
+        'model': {'name': 'dog', 'descriptor': 'sosnet'},
+        'preprocessing': {
+            'grayscale': True,
+            'resize_max': 1600,
         },
-        "preprocessing": {
-            "grayscale": False,
-            "resize_max": 1024,
+    },
+    'disk': {
+        'output': 'feats-disk',
+        'model': {
+            'name': 'disk',
+            'max_keypoints': 5000,
+        },
+        'preprocessing': {
+            'grayscale': False,
+            'resize_max': 1600,
+        },
+    },
+    'aliked-n16': {
+        'output': 'feats-aliked-n16',
+        'model': {
+            'name': 'aliked',
+            'model_name': 'aliked-n16',
+        },
+        'preprocessing': {
+            'grayscale': False,
+            'resize_max': 1024,
         },
     },
     # Global descriptors
-    "dir": {
-        "output": "global-feats-dir",
-        "model": {"name": "dir"},
-        "preprocessing": {"resize_max": 1024},
+    'dir': {
+        'output': 'global-feats-dir',
+        'model': {'name': 'dir'},
+        'preprocessing': {'resize_max': 1024},
     },
-    "netvlad": {
-        "output": "global-feats-netvlad",
-        "model": {"name": "netvlad"},
-        "preprocessing": {"resize_max": 1024},
+    'netvlad': {
+        'output': 'global-feats-netvlad',
+        'model': {'name': 'netvlad'},
+        'preprocessing': {'resize_max': 1024},
     },
-    "openibl": {
-        "output": "global-feats-openibl",
-        "model": {"name": "openibl"},
-        "preprocessing": {"resize_max": 1024},
+    'openibl': {
+        'output': 'global-feats-openibl',
+        'model': {'name': 'openibl'},
+        'preprocessing': {'resize_max': 1024},
     },
-    "megaloc": {
-        "output": "global-feats-megaloc",
-        "model": {"name": "megaloc"},
-        "preprocessing": {"resize_max": 1024},
+    'megaloc': {
+        'output': 'global-feats-megaloc',
+        'model': {'name': 'megaloc'},
+        'preprocessing': {'resize_max': 1024},
     },
 }
 
 
 def resize_image(image, size, interp):
-    if interp.startswith("cv2_"):
-        interp = getattr(cv2, "INTER_" + interp[len("cv2_") :].upper())
+    if interp.startswith('cv2_'):
+        interp = getattr(cv2, 'INTER_' + interp[len('cv2_') :].upper())
         h, w = image.shape[:2]
         if interp == cv2.INTER_AREA and (w < size[0] or h < size[1]):
             interp = cv2.INTER_LINEAR
         resized = cv2.resize(image, size, interpolation=interp)
-    elif interp.startswith("pil_"):
-        interp = getattr(PIL.Image, interp[len("pil_") :].upper())
+    elif interp.startswith('pil_'):
+        interp = getattr(PIL.Image, interp[len('pil_') :].upper())
         resized = PIL.Image.fromarray(image.astype(np.uint8))
         resized = resized.resize(size, resample=interp)
         resized = np.asarray(resized, dtype=image.dtype)
     else:
-        raise ValueError(f"Unknown interpolation {interp}.")
+        raise ValueError(f'Unknown interpolation {interp}.')
     return resized
 
 
 class ImageDataset(torch.utils.data.Dataset):
     default_conf = {
-        "globs": ["*.jpg", "*.png", "*.jpeg", "*.JPG", "*.PNG"],
-        "grayscale": False,
-        "resize_max": None,
-        "resize_force": False,
-        "interpolation": "cv2_area",  # pil_linear is more accurate but slower
+        'globs': ['*.jpg', '*.png', '*.jpeg', '*.JPG', '*.PNG'],
+        'grayscale': False,
+        'resize_max': None,
+        'resize_force': False,
+        'interpolation': 'cv2_area',  # pil_linear is more accurate but slower
     }
 
     def __init__(self, root, conf, paths=None):
@@ -182,23 +182,23 @@ class ImageDataset(torch.utils.data.Dataset):
         if paths is None:
             paths = []
             for g in conf.globs:
-                paths += glob.glob((Path(root) / "**" / g).as_posix(), recursive=True)
+                paths += glob.glob((Path(root) / '**' / g).as_posix(), recursive=True)
             if len(paths) == 0:
-                raise ValueError(f"Could not find any image in root: {root}.")
+                raise ValueError(f'Could not find any image in root: {root}.')
             paths = sorted(set(paths))
             self.names = [Path(p).relative_to(root).as_posix() for p in paths]
-            logger.info(f"Found {len(self.names)} images in root {root}.")
+            logger.info(f'Found {len(self.names)} images in root {root}.')
         else:
             if isinstance(paths, (Path, str)):
                 self.names = parse_image_lists(paths)
             elif isinstance(paths, collections.Iterable):
                 self.names = [p.as_posix() if isinstance(p, Path) else p for p in paths]
             else:
-                raise ValueError(f"Unknown format for path argument {paths}.")
+                raise ValueError(f'Unknown format for path argument {paths}.')
 
             for name in self.names:
                 if not (root / name).exists():
-                    raise ValueError(f"Image {name} does not exists in root: {root}.")
+                    raise ValueError(f'Image {name} does not exists in root: {root}.')
 
     def __getitem__(self, idx):
         name = self.names[idx]
@@ -206,9 +206,7 @@ class ImageDataset(torch.utils.data.Dataset):
         image = image.astype(np.float32)
         size = image.shape[:2][::-1]
 
-        if self.conf.resize_max and (
-            self.conf.resize_force or max(size) > self.conf.resize_max
-        ):
+        if self.conf.resize_max and (self.conf.resize_force or max(size) > self.conf.resize_max):
             scale = self.conf.resize_max / max(size)
             size_new = tuple(int(round(x * scale)) for x in size)
             image = resize_image(image, size_new, self.conf.interpolation)
@@ -220,8 +218,9 @@ class ImageDataset(torch.utils.data.Dataset):
         image = image / 255.0
 
         data = {
-            "image": image,
-            "original_size": np.array(size),
+            'name': name,
+            'image': image,
+            'original_size': np.array(size),
         }
         return data
 
@@ -231,101 +230,113 @@ class ImageDataset(torch.utils.data.Dataset):
 
 @torch.no_grad()
 def main(
-    conf: Dict,
+    conf: dict[str, Any],
     image_dir: Path,
     export_dir: Path | None = None,
+    batch_size: int = 4,
     as_half: bool = True,
-    image_list: Optional[Union[Path, List[str]]] = None,
+    image_list: Path | list[str] | None = None,
     feature_path: Path | None = None,
     overwrite: bool = False,
 ) -> Path:
-    logger.info(
-        "Extracting local features with configuration:" f"\n{pprint.pformat(conf)}"
-    )
+    logger.info(f'Extracting local features with configuration:\n{pprint.pformat(conf)}')
 
-    dataset = ImageDataset(image_dir, conf["preprocessing"], image_list)
+    dataset = ImageDataset(image_dir, conf['preprocessing'], image_list)
     if feature_path is None:
         assert export_dir is not None
-        feature_path = Path(export_dir, conf["output"] + ".h5")
+        feature_path = Path(export_dir, conf['output'] + '.h5')
 
     feature_path.parent.mkdir(exist_ok=True, parents=True)
-    skip_names = set(
-        list_h5_names(feature_path) if feature_path.exists() and not overwrite else ()
-    )
+    skip_names = set(list_h5_names(feature_path) if feature_path.exists() and not overwrite else ())
     dataset.names = [n for n in dataset.names if n not in skip_names]
     if len(dataset.names) == 0:
-        logger.info("Skipping the extraction.")
+        logger.info('Skipping the extraction.')
         return feature_path
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    Model = dynamic_load(extractors, conf["model"]["name"])
-    model = Model(conf["model"]).eval().to(device)
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+        logger.info(f'Using GPU {torch.cuda.get_device_name(0)}.')
+    else:
+        device = torch.device('cpu')
+        logger.info('Using CPU.')
 
+    loaded_model = dynamic_load(extractors, conf['model']['name'])
+    model = loaded_model(conf['model']).eval().to(device)
     loader = torch.utils.data.DataLoader(
         dataset,
+        batch_size=batch_size,
+        num_workers=4,
         shuffle=False,
-        num_workers=1,
+        pin_memory=True,
+        persistent_workers=True,
     )
+    for data in tqdm(loader, desc='Extracting features'):
+        B = len(data['name'])
 
-    for idx, data in enumerate(tqdm(loader, desc="Extracting features")):
-        name = dataset.names[idx]
+        names = data['name']
+        outputs = model({'image': data['image'].to(device)})
 
-        pred = model({"image": data["image"].to(device)})
-        pred = {k: v[0].cpu().numpy() for k, v in pred.items()}
+        preds = []
+        for b in range(B):
+            pred = {k: v[b].cpu().numpy() for k, v in outputs.items()}
+            pred['name'] = names[b]
+            pred['image_size'] = original_size = data['original_size'][b].numpy()
+            if 'keypoints' in pred:
+                size = np.array(data['image'][b].shape[-2:][::-1])
+                scales = (original_size / size).astype(np.float32)
+                pred['keypoints'] = (pred['keypoints'] + 0.5) * scales[None] - 0.5
+                if 'scales' in pred:
+                    pred['scales'] *= scales.mean()
 
-        pred["image_size"] = original_size = data["original_size"][0].numpy()
-        if "keypoints" in pred:
-            size = np.array(data["image"].shape[-2:][::-1])
-            scales = (original_size / size).astype(np.float32)
-            pred["keypoints"] = (pred["keypoints"] + 0.5) * scales[None] - 0.5
-            if "scales" in pred:
-                pred["scales"] *= scales.mean()
-            # add keypoint uncertainties scaled to the original resolution
-            uncertainty = getattr(model, "detection_noise", 1) * scales.mean()
+                # add keypoint uncertainties scaled to the original resolution
+                pred['uncertainty'] = getattr(model, 'detection_noise', 1) * scales.mean()
 
-        if as_half:
-            for k in pred:
-                dt = pred[k].dtype
-                if (dt == np.float32) and (dt != np.float16):
-                    pred[k] = pred[k].astype(np.float16)
+            if as_half:
+                for k in pred:
+                    if isinstance(pred[k], np.ndarray) and np.issubdtype(pred[k].dtype, np.floating):
+                        pred[k] = pred[k].astype(np.float16)
 
-        with h5py.File(str(feature_path), "a", libver="latest") as fd:
-            try:
-                if name in fd:
-                    del fd[name]
+            preds.append(pred)
 
-                grp = fd.create_group(name)
-                for k, v in pred.items():
-                    grp.create_dataset(k, data=v)
+        with h5py.File(str(feature_path), mode='a', libver='latest') as fd:
+            for pred in preds:
+                try:
+                    name = pred.pop('name')
+                    if name in fd:
+                        del fd[name]
 
-                if "keypoints" in pred:
-                    grp["keypoints"].attrs["uncertainty"] = uncertainty
+                    uncertainty = pred.get('uncertainty')
 
-            except OSError as error:
-                if "No space left on device" in error.args[0]:
-                    logger.error(
-                        "Out of disk space: storing features on disk can take "
-                        "significant space, did you enable the as_half flag?"
-                    )
-                    del grp, fd[name]
-                raise error
+                    grp = fd.create_group(name)
+                    for k, v in pred.items():
+                        grp.create_dataset(k, data=v)
 
-        del pred
+                    if 'keypoints' in pred:
+                        grp['keypoints'].attrs['uncertainty'] = uncertainty
 
-    # logger.info("Finished exporting features.")
+                except OSError as e:
+                    if 'No space left on device' in e.args[0]:
+                        logger.error(
+                            'Out of disk space: storing features on disk can take '
+                            'significant space, did you enable the as_half flag?'
+                        )
+                        del grp, fd[name]
+                    raise e
+
+        del preds
+
+    del model, loaded_model
     return feature_path
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image_dir", type=Path, required=True)
-    parser.add_argument("--export_dir", type=Path, required=True)
-    parser.add_argument(
-        "--conf", type=str, default="superpoint_aachen", choices=list(confs.keys())
-    )
-    parser.add_argument("--as_half", action="store_true")
-    parser.add_argument("--image_list", type=Path)
-    parser.add_argument("--feature_path", type=Path)
+    parser.add_argument('--image_dir', type=Path, required=True)
+    parser.add_argument('--export_dir', type=Path, required=True)
+    parser.add_argument('--conf', type=str, default='superpoint_aachen', choices=list(confs.keys()))
+    parser.add_argument('--as_half', action='store_true')
+    parser.add_argument('--image_list', type=Path)
+    parser.add_argument('--feature_path', type=Path)
     args = parser.parse_args()
     main(
         confs[args.conf],
