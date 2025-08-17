@@ -26,7 +26,6 @@ dependencies = [
   "kornia>=0.6.11",
   "gdown",
   "lightglue @ git+https://github.com/cvg/LightGlue",
-  "superglue @ third_party/SuperGluePretrainedNetwork",
 ]
 
 [tool.poetry]

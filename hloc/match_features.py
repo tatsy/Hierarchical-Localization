@@ -251,8 +251,8 @@ def match_from_paths(
         device = torch.device('cpu')
         logger.info('Using CPU for feature matching.')
 
-    loaded_model = dynamic_load(matchers, conf['model']['name'])
-    model = loaded_model(conf['model']).eval().to(device)
+    Matcher = dynamic_load(matchers, conf['model']['name'])
+    model = Matcher(conf['model']).eval().to(device)
 
     dataset = FeaturePairsDataset(pairs, feature_path_q, feature_path_ref)
     loader = torch.utils.data.DataLoader(
@@ -276,13 +276,14 @@ def match_from_paths(
 
         outputs = model(inputs)
         for b in range(B):
-            pred = {k: v[b].cpu().numpy() for k, v in outputs.items()}
+            pred = {k: v[b].cpu().numpy() for k, v in outputs.items() if k != 'stop'}
+            pred['stop'] = outputs['stop']
             pair = names_to_pair(data['name0'][b], data['name1'][b])
             writer_queue.put((pair, pred))
 
     writer_queue.join()
 
-    del model, loaded_model
+    del model
 
     logger.info('Finished exporting matches.')
 
