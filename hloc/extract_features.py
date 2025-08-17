@@ -11,10 +11,10 @@ import h5py
 import numpy as np
 import PIL.Image
 import torch
-from tqdm.auto import tqdm
+from superglue.superpoint import SuperPoint
+from tqdm import tqdm
 
-from . import extractors, logger
-from .utils.base_model import dynamic_load
+from . import logger
 from .utils.io import list_h5_names, read_image
 from .utils.parsers import parse_image_lists
 
@@ -253,15 +253,23 @@ def main(
         logger.info('Skipping the extraction.')
         return feature_path
 
+    import pdb
+
+    pdb.set_trace()
+
     if torch.cuda.is_available():
         device = torch.device('cuda')
-        logger.info(f'Using GPU {torch.cuda.get_device_name(0)}.')
+        logger.info(f'Using GPU ({torch.cuda.get_device_name(0)}) for feature extraction.')
     else:
         device = torch.device('cpu')
-        logger.info('Using CPU.')
+        logger.info('Using CPU for feature extraction.')
 
-    loaded_model = dynamic_load(extractors, conf['model']['name'])
-    model = loaded_model(conf['model']).eval().to(device)
+    if conf['model']['name'] == 'superpoint':
+        model = SuperPoint({})
+    else:
+        raise ValueError(f'Unknown model {conf["model"]["name"]}.')
+
+    model.eval().to(device)
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
