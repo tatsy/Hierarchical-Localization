@@ -265,6 +265,7 @@ def match_from_paths(
     )
     writer_queue = WorkQueue(partial(writer_fn, match_path=match_path), 4)
 
+    match_data_keys = ['matches0', 'matches1', 'matching_scores0', 'matching_scores1']
     for data in tqdm(loader, desc='Matching features'):
         B = len(data['name0'])
         inputs = {}
@@ -276,8 +277,7 @@ def match_from_paths(
 
         outputs = model(inputs)
         for b in range(B):
-            pred = {k: v[b].cpu().numpy() for k, v in outputs.items() if k != 'stop'}
-            pred['stop'] = outputs['stop']
+            pred = {k: outputs[k][b].cpu().numpy() for k in match_data_keys}
             pair = names_to_pair(data['name0'][b], data['name1'][b])
             writer_queue.put((pair, pred))
 

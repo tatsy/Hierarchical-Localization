@@ -299,16 +299,16 @@ def main(
 
             preds.append(pred)
 
-        with h5py.File(str(feature_path), mode='a', libver='latest') as fd:
+        with h5py.File(str(feature_path), mode='a', libver='latest') as h5:
             for pred in preds:
                 try:
                     name = pred.pop('name')
-                    if name in fd:
-                        del fd[name]
+                    if name in h5:
+                        del h5[name]
 
                     uncertainty = pred.get('uncertainty')
 
-                    grp = fd.create_group(name)
+                    grp = h5.create_group(name)
                     for k, v in pred.items():
                         grp.create_dataset(k, data=v)
 
@@ -321,12 +321,9 @@ def main(
                             'Out of disk space: storing features on disk can take '
                             'significant space, did you enable the as_half flag?'
                         )
-                        del grp, fd[name]
+                        del grp, h5[name]
                     raise e
 
-        del preds
-
-    del model
     return feature_path
 
 
