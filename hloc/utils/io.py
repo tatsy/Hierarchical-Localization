@@ -69,12 +69,12 @@ def get_matches(path: Path, name0: str, name1: str) -> tuple[np.ndarray, np.ndar
         scores = hfile[pair]['matching_scores0'].__array__()
 
     idx = np.where(matches != -1)[0]
-    if len(matches.shape) == 0:
-        matches = np.empty((0, 2), dtype=matches.dtype)
-        scores = np.empty((0,), dtype=scores.dtype)
-    else:
-        matches = np.stack([idx, matches[idx]], axis=-1)
-        scores = scores[idx]
+    # if len(matches.shape) == 0:
+    #     matches = np.empty((0, 2), dtype=matches.dtype)
+    #     scores = np.empty((0,), dtype=scores.dtype)
+    # else:
+    matches = np.stack([idx, matches[idx]], axis=-1)
+    scores = scores[idx]
 
     if reverse:
         matches = np.flip(matches, -1)

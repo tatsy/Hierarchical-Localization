@@ -306,7 +306,7 @@ def main(
                     if name in h5:
                         del h5[name]
 
-                    uncertainty = pred.get('uncertainty')
+                    uncertainty = pred.pop('uncertainty')
 
                     grp = h5.create_group(name)
                     for k, v in pred.items():

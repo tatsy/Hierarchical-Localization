@@ -158,10 +158,10 @@ def writer_fn(inp, match_path):
         if pair in fd:
             del fd[pair]
         grp = fd.create_group(pair)
-        matches = pred['matches0'][0].astype(np.int16)
+        matches = pred['matches0'].astype(np.int16)
         grp.create_dataset('matches0', data=matches)
         if 'matching_scores0' in pred:
-            scores = pred['matching_scores0'][0].astype(np.float16)
+            scores = pred['matching_scores0'].astype(np.float16)
             grp.create_dataset('matching_scores0', data=scores)
 
 
@@ -282,8 +282,6 @@ def match_from_paths(
             writer_queue.put((pair, pred))
 
     writer_queue.join()
-
-    del model
 
     logger.info('Finished exporting matches.')
 
