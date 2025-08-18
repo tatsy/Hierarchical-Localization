@@ -271,6 +271,7 @@ def main(
         pin_memory=True,
         persistent_workers=True,
     )
+
     for data in tqdm(loader, desc='Extracting features'):
         B = len(data['name'])
 
