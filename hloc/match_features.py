@@ -1,10 +1,10 @@
-import argparse
 import pprint
-from functools import partial
-from pathlib import Path
+import argparse
 from queue import Queue
-from threading import Thread
 from typing import Any
+from pathlib import Path
+from functools import partial
+from threading import Thread
 
 import h5py
 import numpy as np
@@ -12,8 +12,8 @@ import torch
 from tqdm import tqdm
 
 from . import logger, matchers
+from .utils.parsers import names_to_pair, parse_retrieval, names_to_pair_old
 from .utils.base_model import dynamic_load
-from .utils.parsers import names_to_pair, names_to_pair_old, parse_retrieval
 
 """
 A set of standard configurations that can be directly selected from the command
@@ -277,7 +277,7 @@ def match_from_paths(
 
         outputs = model(inputs)
         for b in range(B):
-            pred = {k: outputs[k][b].cpu().numpy() for k in match_data_keys}
+            pred = {k: outputs[k][b].cpu().numpy() for k in match_data_keys if k in outputs}
             pair = names_to_pair(data['name0'][b], data['name1'][b])
             writer_queue.put((pair, pred))
 
