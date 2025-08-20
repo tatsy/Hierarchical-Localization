@@ -10,7 +10,7 @@ import pycolmap
 from tqdm import tqdm
 
 from . import logger
-from .utils.io import get_matches, get_keypoints
+from .utils.io import get_matches, get_keypoints, get_descriptors
 from .utils.parsers import parse_retrieval
 from .utils.geometry import compute_epipolar_errors
 
@@ -61,8 +61,10 @@ def import_features(
     db.open(str(database_path))
 
     for image_name, image_id in tqdm(image_ids.items(), desc='Importing features'):
+        descriptors = get_descriptors(features_path, image_name)
         keypoints = get_keypoints(features_path, image_name)
-        keypoints += 0.5  # COLMAP origin
+        # keypoints += 0.5  # COLMAP origin
+        db.write_descriptors(image_id, descriptors)
         db.write_keypoints(image_id, keypoints)
 
     db.close()
@@ -73,7 +75,7 @@ def import_matches(
     database_path: Path,
     pairs_path: Path,
     matches_path: Path,
-    min_match_score: float | None = None,
+    min_match_score: float = 0.0,
     skip_geometric_verification: bool = False,
 ):
     logger.info('Importing matches into the database...')
@@ -91,8 +93,7 @@ def import_matches(
             continue
 
         matches, scores = get_matches(matches_path, name0, name1)
-        if min_match_score:
-            matches = matches[scores > min_match_score]
+        matches = matches[scores > min_match_score]
 
         db.write_matches(id0, id1, matches)
         matched = matched.union({(id0, id1), (id1, id0)})
@@ -107,14 +108,15 @@ def import_matches(
 
 def estimation_and_geometric_verification(database_path: Path, pairs_path: Path, verbose: bool = False):
     logger.info('Performing geometric verification of the matches...')
-    options = pycolmap.TwoViewGeometryOptions({'ransac': {'max_num_trials': 20000, 'min_inlier_ratio': 0.1}})
+    options = pycolmap.TwoViewGeometryOptions(
+        {'ransac': pycolmap.RANSACOptions({'max_num_trials': 20000, 'min_inlier_ratio': 0.1})}
+    )
     with OutputCapture(verbose):
-        with pycolmap.ostream():
-            pycolmap.verify_matches(
-                str(database_path),
-                str(pairs_path),
-                options=options,
-            )
+        pycolmap.verify_matches(
+            str(database_path),
+            str(pairs_path),
+            options=options,
+        )
 
 
 def geometric_verification(

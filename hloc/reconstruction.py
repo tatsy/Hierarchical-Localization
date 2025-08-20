@@ -115,7 +115,7 @@ def main(
     camera_mode: pycolmap.CameraMode = pycolmap.CameraMode.AUTO,
     verbose: bool = False,
     skip_geometric_verification: bool = False,
-    min_match_score: float | None = None,
+    min_match_score: float = 0.0,
     image_list: list[str] | None = None,
     image_options: dict[str, Any] | None = None,
     mapper_options: dict[str, Any] | None = None,

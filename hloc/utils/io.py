@@ -3,6 +3,7 @@ from pathlib import Path
 import cv2
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 from .parsers import names_to_pair, names_to_pair_old
 
@@ -35,14 +36,24 @@ def list_h5_names(path):
     return list(set(names))
 
 
-def get_keypoints(path: Path, name: str, return_uncertainty: bool = False) -> np.ndarray:
-    with h5py.File(str(path), 'r', libver='latest') as hfile:
-        dset = hfile[name]['keypoints']
-        p = dset.__array__()
+def get_descriptors(path: Path, name: str) -> npt.NDArray[np.floating]:
+    with h5py.File(str(path), mode='r', libver='latest') as h5:
+        dset = h5[name]['descriptors']
+        descriptors = np.array(dset)
+
+    return np.transpose(descriptors, axes=(1, 0))
+
+
+def get_keypoints(path: Path, name: str, return_uncertainty: bool = False) -> npt.NDArray[np.float64]:
+    with h5py.File(str(path), mode='r', libver='latest') as h5:
+        dset = h5[name]['keypoints']
+        kp = np.array(dset, dtype=np.float64)
         uncertainty = dset.attrs.get('uncertainty')
+
     if return_uncertainty:
-        return p, uncertainty
-    return p
+        return kp, uncertainty
+
+    return kp
 
 
 def find_pair(hfile: h5py.File, name0: str, name1: str):
@@ -63,20 +74,16 @@ def find_pair(hfile: h5py.File, name0: str, name1: str):
 
 
 def get_matches(path: Path, name0: str, name1: str) -> tuple[np.ndarray, np.ndarray]:
-    with h5py.File(str(path), mode='r', libver='latest') as hfile:
-        pair, reverse = find_pair(hfile, name0, name1)
-        matches = hfile[pair]['matches0'].__array__()
-        scores = hfile[pair]['matching_scores0'].__array__()
+    with h5py.File(str(path), mode='r', libver='latest') as h5:
+        pair, reverse = find_pair(h5, name0, name1)
+        matches = np.asarray(h5[pair]['matches0'], dtype=np.int32)
+        scores = np.asarray(h5[pair]['matching_scores0'], dtype=np.float64)
 
     idx = np.where(matches != -1)[0]
-    # if len(matches.shape) == 0:
-    #     matches = np.empty((0, 2), dtype=matches.dtype)
-    #     scores = np.empty((0,), dtype=scores.dtype)
-    # else:
     matches = np.stack([idx, matches[idx]], axis=-1)
     scores = scores[idx]
 
     if reverse:
-        matches = np.flip(matches, -1)
+        matches = np.flip(matches, axis=-1)
 
     return matches, scores
