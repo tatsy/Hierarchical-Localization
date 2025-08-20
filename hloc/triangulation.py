@@ -84,10 +84,10 @@ def import_matches(
     db = pycolmap.Database()
     db.open(str(database_path))
 
-    matched: set[tuple[tuple[int, int], tuple[int, int]]] = set()
+    matched: set[tuple[int, int]] = set()
     for name0, name1 in tqdm(pairs, desc='Import matches'):
         id0, id1 = image_ids[name0], image_ids[name1]
-        if ((id0, id1), (id1, id0)) in matched:
+        if (id0, id1) in matched or (id1, id0) in matched:
             continue
 
         matches, scores = get_matches(matches_path, name0, name1)
@@ -95,18 +95,11 @@ def import_matches(
             matches = matches[scores > min_match_score]
 
         db.write_matches(id0, id1, matches)
-        matched.add(((id0, id1), (id1, id0)))
+        matched = matched.union({(id0, id1), (id1, id0)})
 
         if skip_geometric_verification:
             two_view_geo = pycolmap.TwoViewGeometry()
-            two_view_geo.config = pycolmap.TwoViewGeometryConfiguration.UNCALIBRATED
             two_view_geo.inlier_matches = matches
-            two_view_geo.F = np.eye(3)
-            two_view_geo.E = np.eye(3)
-            two_view_geo.H = np.eye(3)
-            qvec = np.array([1.0, 0.0, 0.0, 0.0])
-            tvec = np.zeros(3)
-            two_view_geo.cam2_from_cam1 = pycolmap.Rigid3d(rotation=qvec, translation=tvec)
             db.write_two_view_geometry(id0, id1, two_view_geo)
 
     db.close()
@@ -140,7 +133,7 @@ def geometric_verification(
     db.open(str(database_path))
 
     inlier_ratios = []
-    matched: set[tuple[tuple[int, int], tuple[int, int]]] = set()
+    matched: set[tuple[int, int]] = set()
     for name0 in tqdm(pairs):
         id0 = image_ids[name0]
         image0 = reference.images[id0]
@@ -165,12 +158,15 @@ def geometric_verification(
 
             matches = get_matches(matches_path, name0, name1)[0]
 
-            if len({(id0, id1), (id1, id0)} & matched) > 0:
+            if (id0, id1) in matched or (id1, id0) in matched:
                 continue
-            matched |= {(id0, id1), (id1, id0)}
+
+            matched = matched.union({(id0, id1), (id1, id0)})
 
             if matches.shape[0] == 0:
-                db.add_two_view_geometry(id0, id1, matches)
+                two_view_geo = pycolmap.TwoViewGeometry()
+                two_view_geo.inlier_matches = matches
+                db.write_two_view_geometry(id0, id1, two_view_geo)
                 continue
 
             cam1_from_cam0 = image1.cam_from_world * image0.cam_from_world.inverse()
@@ -181,7 +177,9 @@ def geometric_verification(
             )
             # TODO: We could also add E to the database, but we need
             # to reverse the transformations if id0 > id1 in utils/database.py.
-            db.add_two_view_geometry(id0, id1, matches[valid_matches, :])
+            two_view_geo = pycolmap.TwoViewGeometry()
+            two_view_geo.inlier_matches = matches[valid_matches]
+            db.write_two_view_geometry(id0, id1, two_view_geo)
             inlier_ratios.append(np.mean(valid_matches))
 
     logger.info(
