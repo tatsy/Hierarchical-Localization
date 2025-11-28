@@ -1,7 +1,7 @@
+import json
 import argparse
 import collections.abc as collections
 from pathlib import Path
-from typing import List, Optional, Union
 
 from . import logger
 from .utils.io import list_h5_names
@@ -10,10 +10,10 @@ from .utils.parsers import parse_image_lists
 
 def main(
     output: Path,
-    image_list: Optional[Union[Path, List[str]]] = None,
-    features: Optional[Path] = None,
-    ref_list: Optional[Union[Path, List[str]]] = None,
-    ref_features: Optional[Path] = None,
+    image_list: Path | list[str] | None = None,
+    features: Path | None = None,
+    ref_list: Path | list[str] | None = None,
+    ref_features: Path | None = None,
 ):
     if image_list is not None:
         if isinstance(image_list, (str, Path)):
@@ -21,11 +21,11 @@ def main(
         elif isinstance(image_list, collections.Iterable):
             names_q = list(image_list)
         else:
-            raise ValueError(f"Unknown type for image list: {image_list}")
+            raise ValueError(f'Unknown type for image list: {image_list}')
     elif features is not None:
         names_q = list_h5_names(features)
     else:
-        raise ValueError("Provide either a list of images or a feature file.")
+        raise ValueError('Provide either a list of images or a feature file.')
 
     self_matching = False
     if ref_list is not None:
@@ -34,7 +34,7 @@ def main(
         elif isinstance(image_list, collections.Iterable):
             names_ref = list(ref_list)
         else:
-            raise ValueError(f"Unknown type for reference image list: {ref_list}")
+            raise ValueError(f'Unknown type for reference image list: {ref_list}')
     elif ref_features is not None:
         names_ref = list_h5_names(ref_features)
     else:
@@ -48,17 +48,17 @@ def main(
                 continue
             pairs.append((n1, n2))
 
-    logger.info(f"Found {len(pairs)} pairs.")
-    with open(output, "w") as f:
-        f.write("\n".join(" ".join([i, j]) for i, j in pairs))
+    logger.info(f'Found {len(pairs)} pairs.')
+    with open(output, mode='w', encoding='utf-8') as fp:
+        json.dump(pairs, fp, indent=2)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--image_list", type=Path)
-    parser.add_argument("--features", type=Path)
-    parser.add_argument("--ref_list", type=Path)
-    parser.add_argument("--ref_features", type=Path)
+    parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--image_list', type=Path)
+    parser.add_argument('--features', type=Path)
+    parser.add_argument('--ref_list', type=Path)
+    parser.add_argument('--ref_features', type=Path)
     args = parser.parse_args()
     main(**args.__dict__)

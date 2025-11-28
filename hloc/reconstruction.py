@@ -140,6 +140,7 @@ def main(
         min_match_score,
         skip_geometric_verification,
     )
+
     if not skip_geometric_verification:
         estimation_and_geometric_verification(database, pairs, verbose)
 

@@ -1,5 +1,6 @@
 import io
 import sys
+import json
 import argparse
 import contextlib
 from typing import Any
@@ -80,8 +81,8 @@ def import_matches(
 ):
     logger.info('Importing matches into the database...')
 
-    with open(str(pairs_path), mode='r') as f:
-        pairs = [p.split() for p in f.readlines()]
+    with open(str(pairs_path), mode='r', encoding='utf-8') as f:
+        pairs = json.load(f)
 
     db = pycolmap.Database()
     db.open(str(database_path))
@@ -112,11 +113,7 @@ def estimation_and_geometric_verification(database_path: Path, pairs_path: Path,
         {'ransac': pycolmap.RANSACOptions({'max_num_trials': 20000, 'min_inlier_ratio': 0.1})}
     )
     with OutputCapture(verbose):
-        pycolmap.verify_matches(
-            str(database_path),
-            str(pairs_path),
-            options=options,
-        )
+        pycolmap.match_exhaustive(database_path, verification_options=options)
 
 
 def geometric_verification(

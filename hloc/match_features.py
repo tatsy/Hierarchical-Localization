@@ -1,5 +1,6 @@
 import pprint
 import argparse
+import multiprocessing
 from queue import Queue
 from typing import Any
 from pathlib import Path
@@ -254,16 +255,20 @@ def match_from_paths(
     Matcher = dynamic_load(matchers, conf['model']['name'])
     model = Matcher(conf['model']).eval().to(device)
 
+    num_workers = multiprocessing.cpu_count() // 2
     dataset = FeaturePairsDataset(pairs, feature_path_q, feature_path_ref)
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
-        num_workers=4,
+        num_workers=num_workers,
         shuffle=False,
         pin_memory=True,
         persistent_workers=True,
     )
-    writer_queue = WorkQueue(partial(writer_fn, match_path=match_path), 4)
+    writer_queue = WorkQueue(
+        partial(writer_fn, match_path=match_path),
+        num_threads=num_workers,
+    )
 
     match_data_keys = ['matches0', 'matches1', 'matching_scores0', 'matching_scores1']
     for data in tqdm(loader, desc='Matching features'):
