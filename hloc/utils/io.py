@@ -73,11 +73,18 @@ def find_pair(hfile: h5py.File, name0: str, name1: str):
     raise ValueError(f'Could not find pair {(name0, name1)}... Maybe you matched with a different list of pairs? ')
 
 
-def get_matches(path: Path, name0: str, name1: str) -> tuple[np.ndarray, np.ndarray]:
-    with h5py.File(str(path), mode='r', libver='latest') as h5:
-        pair, reverse = find_pair(h5, name0, name1)
-        matches = np.asarray(h5[pair]['matches0'], dtype=np.int32)
-        scores = np.asarray(h5[pair]['matching_scores0'], dtype=np.float64)
+def get_matches(file: str | Path | h5py.File, name0: str, name1: str) -> tuple[np.ndarray, np.ndarray]:
+    if isinstance(file, h5py.File):
+        h5 = file
+        close = False
+
+    else:
+        h5 = h5py.File(str(file), mode='r', libver='latest')
+        close = True
+
+    pair, reverse = find_pair(h5, name0, name1)
+    matches = np.asarray(h5[pair]['matches0'], dtype=np.int32)
+    scores = np.asarray(h5[pair]['matching_scores0'], dtype=np.float64)
 
     idx = np.where(matches != -1)[0]
     matches = np.stack([idx, matches[idx]], axis=-1)
@@ -85,5 +92,8 @@ def get_matches(path: Path, name0: str, name1: str) -> tuple[np.ndarray, np.ndar
 
     if reverse:
         matches = np.flip(matches, axis=-1)
+
+    if close:
+        h5.close()
 
     return matches, scores

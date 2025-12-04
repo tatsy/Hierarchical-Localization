@@ -1,3 +1,4 @@
+import os
 import pprint
 import argparse
 import multiprocessing
@@ -10,6 +11,7 @@ from threading import Thread
 import h5py
 import numpy as np
 import torch
+import torch.multiprocessing as mp
 from tqdm import tqdm
 
 from . import logger, matchers
@@ -100,6 +102,7 @@ class WorkQueue:
     def join(self):
         for thread in self.threads:
             self.queue.put(None)
+
         for thread in self.threads:
             thread.join()
 
@@ -190,7 +193,7 @@ def main(
     if features_ref is None:
         features_ref = features_q
 
-    match_from_paths(conf, pairs, matches, features_q, features_ref, batch_size=batch_size, overwrite=overwrite)
+    match_from_paths_mp(conf, pairs, matches, features_q, features_ref, batch_size=batch_size, overwrite=overwrite)
 
     return matches
 
@@ -288,7 +291,157 @@ def match_from_paths(
 
     writer_queue.join()
 
+
+def match_from_paths_mp(
+    conf: dict[str, Any],
+    pairs_path: Path,
+    match_path: Path,
+    feature_path_q: Path,
+    feature_path_ref: Path,
+    batch_size: int = 4,
+    overwrite: bool = False,
+) -> None:
+    logger.info(f'Matching local features with configuration:\n{pprint.pformat(conf)}')
+
+    if not feature_path_q.exists():
+        raise FileNotFoundError(f'Query feature file {feature_path_q}.')
+    if not feature_path_ref.exists():
+        raise FileNotFoundError(f'Reference feature file {feature_path_ref}.')
+    match_path.parent.mkdir(exist_ok=True, parents=True)
+
+    assert pairs_path.exists(), pairs_path
+    pairs = parse_retrieval(pairs_path)
+    pairs = [(q, r) for q, rs in pairs.items() for r in rs]
+    pairs = find_unique_new_pairs(pairs, None if overwrite else match_path)
+    if len(pairs) == 0:
+        logger.info('Skipping the matching.')
+        return
+
+    num_gpus = torch.cuda.device_count()
+    if num_gpus == 0:
+        raise RuntimeError('No GPU available for multi-processing matching.')
+
+    num_nodes = 4
+    world_size = num_gpus * num_nodes
+
+    result_queue = mp.Queue(maxsize=1024)
+    writer = mp.Process(target=write_process, args=(result_queue, match_path))
+    writer.start()
+
+    mp.spawn(
+        run_match_process,
+        nprocs=world_size,
+        args=(
+            world_size,
+            num_gpus,
+            pairs,
+            conf,
+            match_path,
+            feature_path_q,
+            feature_path_ref,
+            batch_size,
+            result_queue,
+        ),
+        join=True,
+    )
+
+    result_queue.put(None)
+    writer.join()
+
     logger.info('Finished exporting matches.')
+
+
+def write_process(result_queue: Any, match_path: Path) -> None:
+    with h5py.File(str(match_path), mode='a', libver='latest') as fd:
+        while True:
+            item = result_queue.get()
+            if item is None:
+                break
+
+            pair, pred = item
+            if pair in fd:
+                del fd[pair]
+            grp = fd.create_group(pair)
+            matches = pred['matches0'].astype(np.int16)
+            grp.create_dataset('matches0', data=matches)
+            if 'matching_scores0' in pred:
+                scores = pred['matching_scores0'].astype(np.float16)
+                grp.create_dataset('matching_scores0', data=scores)
+
+
+def run_match_process(
+    global_rank: int,
+    world_size: int,
+    num_gpus: int,
+    pairs: list[tuple[str, str]],
+    conf: dict[str, Any],
+    match_path: Path,
+    feature_path_q: Path,
+    feature_path_ref: Path,
+    batch_size: int = 4,
+    result_queue: Any = None,
+) -> None:
+    # Disable using multiple threads in each process
+    torch_num_threads = torch.get_num_threads()
+    torch_num_interp_threads = torch.get_num_interop_threads()
+    omp_threads = os.environ.get('OMP_NUM_THREADS', '')
+    mkl_threads = os.environ.get('MKL_NUM_THREADS', '')
+    openblas_threads = os.environ.get('OPENBLAS_NUM_THREADS', '')
+
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+
+    # Set device for each process
+    gpu_id = global_rank % num_gpus
+    device = torch.device(f'cuda:{gpu_id}')
+    Matcher = dynamic_load(matchers, conf['model']['name'])
+    model = Matcher(conf['model']).eval().to(device)
+
+    sub_pairs = [pair for i, pair in enumerate(pairs) if i % world_size == global_rank]
+    dataset = FeaturePairsDataset(sub_pairs, feature_path_q, feature_path_ref)
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=0,
+        shuffle=False,
+        pin_memory=True,
+    )
+
+    assert result_queue is not None
+    with torch.inference_mode():
+        match_data_keys = ['matches0', 'matches1', 'matching_scores0', 'matching_scores1']
+        for data in tqdm(
+            loader,
+            desc=f'Matching ({global_rank + 1}/{world_size})',
+            position=global_rank,
+            dynamic_ncols=True,
+            leave=False,
+        ):
+            B = len(data['name0'])
+            inputs = {}
+            for k, v in data.items():
+                if k.startswith('image') or k.startswith('name'):
+                    inputs[k] = v
+                else:
+                    inputs[k] = v.to(device, non_blocking=True)
+
+            outputs = model(inputs)
+            for b in range(B):
+                pred = {k: outputs[k][b].cpu().numpy() for k in match_data_keys if k in outputs}
+                pair = names_to_pair(data['name0'][b], data['name1'][b])
+                result_queue.put((pair, pred))
+
+    logger.info(f'[rank {global_rank}] done.')
+
+    # Restore thread settings
+    torch.set_num_threads(torch_num_threads)
+    torch.set_num_interop_threads(torch_num_interp_threads)
+    os.environ['OMP_NUM_THREADS'] = omp_threads
+    os.environ['MKL_NUM_THREADS'] = mkl_threads
+    os.environ['OPENBLAS_NUM_THREADS'] = openblas_threads
 
 
 if __name__ == '__main__':

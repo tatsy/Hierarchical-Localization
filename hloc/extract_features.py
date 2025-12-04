@@ -1,22 +1,23 @@
-import argparse
-import collections.abc as collections
 import glob
 import pprint
-from pathlib import Path
+import argparse
+import collections.abc as collections
+import multiprocessing
 from types import SimpleNamespace
 from typing import Any
+from pathlib import Path
 
 import cv2
 import h5py
 import numpy as np
-import PIL.Image
 import torch
+import PIL.Image
 from tqdm import tqdm
 
-from . import extractors, logger
-from .utils.base_model import dynamic_load
-from .utils.io import list_h5_names, read_image
+from . import logger, extractors
+from .utils.io import read_image, list_h5_names
 from .utils.parsers import parse_image_lists
+from .utils.base_model import dynamic_load
 
 """
 A set of standard configurations that can be directly selected from the command
@@ -263,10 +264,11 @@ def main(
     Extractor = dynamic_load(extractors, conf['model']['name'])
     model = Extractor(conf['model']).eval().to(device)
 
+    num_workers = multiprocessing.cpu_count() // 2
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
-        num_workers=4,
+        num_workers=num_workers,
         shuffle=False,
         pin_memory=True,
         persistent_workers=True,

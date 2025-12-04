@@ -6,6 +6,7 @@ import contextlib
 from typing import Any
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pycolmap
 from tqdm import tqdm
@@ -38,13 +39,12 @@ def create_db_from_model(reconstruction: pycolmap.Reconstruction, database_path:
         logger.warning('The database already exists, deleting it.')
         database_path.unlink()
 
-    db = pycolmap.Database()
-    db.open(str(database_path))
+    db = pycolmap.Database.open(str(database_path))
 
-    for i, camera in reconstruction.cameras.items():
+    for _, camera in reconstruction.cameras.items():
         db.write_camera(camera)
 
-    for i, image in reconstruction.images.items():
+    for _, image in reconstruction.images.items():
         db.write_image(image)
 
     db.close()
@@ -58,8 +58,7 @@ def import_features(
     features_path: Path,
 ):
     logger.info('Importing features into the database...')
-    db = pycolmap.Database()
-    db.open(str(database_path))
+    db = pycolmap.Database.open(str(database_path))
 
     for image_name, image_id in tqdm(image_ids.items(), desc='Importing features'):
         descriptors = get_descriptors(features_path, image_name)
@@ -84,25 +83,27 @@ def import_matches(
     with open(str(pairs_path), mode='r', encoding='utf-8') as f:
         pairs = json.load(f)
 
-    db = pycolmap.Database()
-    db.open(str(database_path))
+    db = pycolmap.Database.open(str(database_path))
 
     matched: set[tuple[int, int]] = set()
-    for name0, name1 in tqdm(pairs, desc='Import matches'):
-        id0, id1 = image_ids[name0], image_ids[name1]
-        if (id0, id1) in matched or (id1, id0) in matched:
-            continue
+    with h5py.File(str(matches_path), mode='r', libver='latest') as h5:
+        for name0, name1 in tqdm(pairs, desc='Import matches'):
+            id0, id1 = image_ids[name0], image_ids[name1]
 
-        matches, scores = get_matches(matches_path, name0, name1)
-        matches = matches[scores > min_match_score]
+            key = (id0, id1) if id0 < id1 else (id1, id0)
+            if key in matched:
+                continue
 
-        db.write_matches(id0, id1, matches)
-        matched = matched.union({(id0, id1), (id1, id0)})
+            matches, scores = get_matches(h5, name0, name1)
+            matches = matches[scores > min_match_score]
 
-        if skip_geometric_verification:
-            two_view_geo = pycolmap.TwoViewGeometry()
-            two_view_geo.inlier_matches = matches
-            db.write_two_view_geometry(id0, id1, two_view_geo)
+            db.write_matches(id0, id1, matches)
+            matched.add(key)
+
+            if skip_geometric_verification:
+                two_view_geo = pycolmap.TwoViewGeometry()
+                two_view_geo.inlier_matches = matches
+                db.write_two_view_geometry(id0, id1, two_view_geo)
 
     db.close()
 
@@ -113,7 +114,8 @@ def estimation_and_geometric_verification(database_path: Path, pairs_path: Path,
         {'ransac': pycolmap.RANSACOptions({'max_num_trials': 20000, 'min_inlier_ratio': 0.1})}
     )
     with OutputCapture(verbose):
-        pycolmap.match_exhaustive(database_path, verification_options=options)
+        with pycolmap.ostream():
+            pycolmap.match_exhaustive(str(database_path), verification_options=options)
 
 
 def geometric_verification(
@@ -128,8 +130,7 @@ def geometric_verification(
     logger.info('Performing geometric verification of the matches...')
 
     pairs = parse_retrieval(pairs_path)
-    db = pycolmap.Database()
-    db.open(str(database_path))
+    db = pycolmap.Database.open(str(database_path))
 
     inlier_ratios = []
     matched: set[tuple[int, int]] = set()
