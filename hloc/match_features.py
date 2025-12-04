@@ -176,7 +176,7 @@ def main(
     export_dir: Path | None = None,
     matches: Path | None = None,
     features_ref: Path | None = None,
-    batch_size: int = 4,
+    num_workers: int = 4,
     overwrite: bool = False,
 ) -> Path:
     if isinstance(features, Path) or Path(features).exists():
@@ -193,7 +193,25 @@ def main(
     if features_ref is None:
         features_ref = features_q
 
-    match_from_paths_mp(conf, pairs, matches, features_q, features_ref, batch_size=batch_size, overwrite=overwrite)
+    if num_workers <= 1:
+        match_from_paths(
+            conf,
+            pairs,
+            matches,
+            features_q,
+            features_ref,
+            overwrite=overwrite,
+        )
+    else:
+        match_from_paths_mp(
+            conf,
+            pairs,
+            matches,
+            features_q,
+            features_ref,
+            num_workers=num_workers,
+            overwrite=overwrite,
+        )
 
     return matches
 
@@ -229,7 +247,6 @@ def match_from_paths(
     match_path: Path,
     feature_path_q: Path,
     feature_path_ref: Path,
-    batch_size: int = 4,
     overwrite: bool = False,
 ) -> None:
     logger.info(f'Matching local features with configuration:\n{pprint.pformat(conf)}')
@@ -262,7 +279,7 @@ def match_from_paths(
     dataset = FeaturePairsDataset(pairs, feature_path_q, feature_path_ref)
     loader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=batch_size,
+        batch_size=1,
         num_workers=num_workers,
         shuffle=False,
         pin_memory=True,
@@ -298,7 +315,7 @@ def match_from_paths_mp(
     match_path: Path,
     feature_path_q: Path,
     feature_path_ref: Path,
-    batch_size: int = 4,
+    num_workers: int = 4,
     overwrite: bool = False,
 ) -> None:
     logger.info(f'Matching local features with configuration:\n{pprint.pformat(conf)}')
@@ -321,8 +338,7 @@ def match_from_paths_mp(
     if num_gpus == 0:
         raise RuntimeError('No GPU available for multi-processing matching.')
 
-    num_nodes = 4
-    world_size = num_gpus * num_nodes
+    world_size = num_workers
 
     result_queue = mp.Queue(maxsize=1024)
     writer = mp.Process(target=write_process, args=(result_queue, match_path))
@@ -339,7 +355,6 @@ def match_from_paths_mp(
             match_path,
             feature_path_q,
             feature_path_ref,
-            batch_size,
             result_queue,
         ),
         join=True,
@@ -378,7 +393,6 @@ def run_match_process(
     match_path: Path,
     feature_path_q: Path,
     feature_path_ref: Path,
-    batch_size: int = 4,
     result_queue: Any = None,
 ) -> None:
     # Disable using multiple threads in each process
@@ -404,7 +418,7 @@ def run_match_process(
     dataset = FeaturePairsDataset(sub_pairs, feature_path_q, feature_path_ref)
     loader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=batch_size,
+        batch_size=1,
         num_workers=0,
         shuffle=False,
         pin_memory=True,
@@ -437,8 +451,6 @@ def run_match_process(
     logger.info(f'[rank {global_rank}] done.')
 
     # Restore thread settings
-    torch.set_num_threads(torch_num_threads)
-    torch.set_num_interop_threads(torch_num_interp_threads)
     os.environ['OMP_NUM_THREADS'] = omp_threads
     os.environ['MKL_NUM_THREADS'] = mkl_threads
     os.environ['OPENBLAS_NUM_THREADS'] = openblas_threads

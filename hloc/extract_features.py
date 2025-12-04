@@ -234,7 +234,6 @@ def main(
     conf: dict[str, Any],
     image_dir: Path,
     export_dir: Path | None = None,
-    batch_size: int = 4,
     as_half: bool = True,
     image_list: Path | list[str] | None = None,
     feature_path: Path | None = None,
@@ -267,7 +266,7 @@ def main(
     num_workers = multiprocessing.cpu_count() // 2
     loader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=batch_size,
+        batch_size=1,
         num_workers=num_workers,
         shuffle=False,
         pin_memory=True,
