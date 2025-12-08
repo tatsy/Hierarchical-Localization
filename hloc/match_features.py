@@ -309,6 +309,7 @@ def match_from_paths(
     writer_queue.join()
 
 
+@torch.no_grad()
 def match_from_paths_mp(
     conf: dict[str, Any],
     pairs_path: Path,
@@ -344,21 +345,34 @@ def match_from_paths_mp(
     writer = mp.Process(target=write_process, args=(result_queue, match_path))
     writer.start()
 
-    mp.spawn(
-        run_match_process,
-        nprocs=world_size,
-        args=(
-            world_size,
-            num_gpus,
-            pairs,
-            conf,
-            match_path,
-            feature_path_q,
-            feature_path_ref,
-            result_queue,
-        ),
-        join=True,
-    )
+    n_pairs = len(pairs)
+    chunksize = min(n_pairs, world_size * 128)
+
+    pbar = tqdm(total=n_pairs, desc=f'Matching features ({num_gpus} GPUs)')
+    for i in range(0, n_pairs, chunksize):
+        i0 = i
+        i1 = min(i + chunksize, n_pairs)
+        print(i0, i1)
+        sub_pairs = pairs[i0:i1]
+
+        mp.spawn(
+            run_match_process,
+            nprocs=world_size,
+            args=(
+                world_size,
+                num_gpus,
+                sub_pairs,
+                conf,
+                match_path,
+                feature_path_q,
+                feature_path_ref,
+                result_queue,
+            ),
+            join=True,
+        )
+
+        pbar.update(abs(i1 - i0))
+        pbar.refresh()
 
     result_queue.put(None)
     writer.join()
@@ -376,6 +390,7 @@ def write_process(result_queue: Any, match_path: Path) -> None:
             pair, pred = item
             if pair in fd:
                 del fd[pair]
+
             grp = fd.create_group(pair)
             matches = pred['matches0'].astype(np.int16)
             grp.create_dataset('matches0', data=matches)
@@ -396,8 +411,6 @@ def run_match_process(
     result_queue: Any = None,
 ) -> None:
     # Disable using multiple threads in each process
-    torch_num_threads = torch.get_num_threads()
-    torch_num_interp_threads = torch.get_num_interop_threads()
     omp_threads = os.environ.get('OMP_NUM_THREADS', '')
     mkl_threads = os.environ.get('MKL_NUM_THREADS', '')
     openblas_threads = os.environ.get('OPENBLAS_NUM_THREADS', '')
@@ -427,13 +440,7 @@ def run_match_process(
     assert result_queue is not None
     with torch.inference_mode():
         match_data_keys = ['matches0', 'matches1', 'matching_scores0', 'matching_scores1']
-        for data in tqdm(
-            loader,
-            desc=f'Matching ({global_rank + 1}/{world_size})',
-            position=global_rank,
-            dynamic_ncols=True,
-            leave=False,
-        ):
+        for data in loader:
             B = len(data['name0'])
             inputs = {}
             for k, v in data.items():
@@ -448,7 +455,7 @@ def run_match_process(
                 pair = names_to_pair(data['name0'][b], data['name1'][b])
                 result_queue.put((pair, pred))
 
-    logger.info(f'[rank {global_rank}] done.')
+    print(f'[rank {global_rank}] done.')
 
     # Restore thread settings
     os.environ['OMP_NUM_THREADS'] = omp_threads
