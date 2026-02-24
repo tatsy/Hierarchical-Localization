@@ -1,8 +1,10 @@
+from typing import Mapping
 from pathlib import Path
 
 import cv2
 import h5py
 import numpy as np
+import pycolmap
 import numpy.typing as npt
 
 from .parsers import names_to_pair, names_to_pair_old
@@ -97,3 +99,14 @@ def get_matches(file: str | Path | h5py.File, name0: str, name1: str) -> tuple[n
         h5.close()
 
     return matches, scores
+
+
+def write_poses(poses: Mapping[str, pycolmap.Rigid3d], path: str, prepend_camera_name: bool):
+    with open(path, 'w') as f:
+        for query, t in poses.items():
+            qvec = ' '.join(map(str, t.rotation.quat[[3, 0, 1, 2]]))
+            tvec = ' '.join(map(str, t.translation))
+            name = query.split('/')[-1]
+            if prepend_camera_name:
+                name = query.split('/')[-2] + '/' + name
+            f.write(f'{name} {qvec} {tvec}\n')

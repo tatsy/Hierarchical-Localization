@@ -1,18 +1,14 @@
-import io
-import sys
 import json
 import argparse
-import contextlib
-from typing import Any
+from typing import Any, Dict, Union
 from pathlib import Path
 
-import h5py
 import numpy as np
 import pycolmap
 from tqdm import tqdm
 
 from . import logger
-from .utils.io import get_matches, get_keypoints, get_descriptors
+from .utils.io import get_matches, get_keypoints
 from .utils.parsers import parse_retrieval
 from .utils.geometry import compute_epipolar_errors
 
@@ -23,56 +19,49 @@ class OutputCapture:
 
     def __enter__(self):
         if not self.verbose:
-            self.capture = contextlib.redirect_stdout(io.StringIO())
-            self.out = self.capture.__enter__()
+            pycolmap.logging.alsologtostderr = False
 
     def __exit__(self, exc_type, *args):
         if not self.verbose:
-            self.capture.__exit__(exc_type, *args)
-            if exc_type is not None:
-                logger.error('Failed with output:\n%s', self.out.getvalue())
-        sys.stdout.flush()
+            pycolmap.logging.alsologtostderr = True
 
 
-def create_db_from_model(reconstruction: pycolmap.Reconstruction, database_path: Path) -> dict[str, int]:
+def create_db_from_model(reconstruction: pycolmap.Reconstruction, database_path: Union[str, Path]) -> Dict[str, int]:
+    database_path = Path(database_path)
     if database_path.exists():
         logger.warning('The database already exists, deleting it.')
         database_path.unlink()
 
-    db = pycolmap.Database.open(str(database_path))
+    with pycolmap.Database.open(str(database_path)) as db:
+        for camera_id, camera in reconstruction.cameras.items():
+            db.write_camera(camera, use_camera_id=True)
+        for rig_id, rig in reconstruction.rigs.items():
+            db.write_rig(rig, use_rig_id=True)
+        for frame_id, frame in reconstruction.frames.items():
+            db.write_frame(frame, use_frame_id=True)
+        for image_id, image in reconstruction.images.items():
+            db.write_image(image, use_image_id=True)
 
-    for _, camera in reconstruction.cameras.items():
-        db.write_camera(camera)
-
-    for _, image in reconstruction.images.items():
-        db.write_image(image)
-
-    db.close()
-
-    return {image.name: i for i, image in reconstruction.images.items()}
+    return {image.name: image_id for image_id, image in reconstruction.images.items()}
 
 
 def import_features(
-    image_ids: dict[str, int],
-    database_path: Path,
+    image_ids: Dict[str, int],
+    db: pycolmap.Database,
     features_path: Path,
 ):
     logger.info('Importing features into the database...')
-    db = pycolmap.Database.open(str(database_path))
-
     for image_name, image_id in tqdm(image_ids.items(), desc='Importing features'):
-        descriptors = get_descriptors(features_path, image_name)
+        # descriptors = get_descriptors(features_path, image_name)
         keypoints = get_keypoints(features_path, image_name)
         # keypoints += 0.5  # COLMAP origin
-        db.write_descriptors(image_id, descriptors)
+        # db.write_descriptors(image_id, descriptors)
         db.write_keypoints(image_id, keypoints)
-
-    db.close()
 
 
 def import_matches(
-    image_ids: dict[str, int],
-    database_path: Path,
+    image_ids: Dict[str, int],
+    db: pycolmap.Database,
     pairs_path: Path,
     matches_path: Path,
     min_match_score: float = 0.0,
@@ -83,29 +72,19 @@ def import_matches(
     with open(str(pairs_path), mode='r', encoding='utf-8') as f:
         pairs = json.load(f)
 
-    db = pycolmap.Database.open(str(database_path))
-
     matched: set[tuple[int, int]] = set()
-    with h5py.File(str(matches_path), mode='r', libver='latest') as h5:
-        for name0, name1 in tqdm(pairs, desc='Import matches'):
-            id0, id1 = image_ids[name0], image_ids[name1]
-
-            key = (id0, id1) if id0 < id1 else (id1, id0)
-            if key in matched:
-                continue
-
-            matches, scores = get_matches(h5, name0, name1)
+    for name0, name1 in tqdm(pairs):
+        id0, id1 = image_ids[name0], image_ids[name1]
+        if len({(id0, id1), (id1, id0)} & matched) > 0:
+            continue
+        matches, scores = get_matches(matches_path, name0, name1)
+        if min_match_score:
             matches = matches[scores > min_match_score]
+        db.write_matches(id0, id1, matches)
+        matched |= {(id0, id1), (id1, id0)}
 
-            db.write_matches(id0, id1, matches)
-            matched.add(key)
-
-            if skip_geometric_verification:
-                two_view_geo = pycolmap.TwoViewGeometry()
-                two_view_geo.inlier_matches = matches
-                db.write_two_view_geometry(id0, id1, two_view_geo)
-
-    db.close()
+        if skip_geometric_verification:
+            db.write_two_view_geometry(id0, id1, pycolmap.TwoViewGeometry(inlier_matches=matches))
 
 
 def estimation_and_geometric_verification(database_path: Path, pairs_path: Path, verbose: bool = False):
@@ -114,14 +93,17 @@ def estimation_and_geometric_verification(database_path: Path, pairs_path: Path,
         {'ransac': pycolmap.RANSACOptions({'max_num_trials': 20000, 'min_inlier_ratio': 0.1})}
     )
     with OutputCapture(verbose):
-        with pycolmap.ostream():
-            pycolmap.match_exhaustive(str(database_path), verification_options=options)
+        pycolmap.verify_matches(
+            str(database_path),
+            str(pairs_path),
+            options=options,
+        )
 
 
 def geometric_verification(
     image_ids: dict[str, int],
     reference: pycolmap.Reconstruction,
-    database_path: Path,
+    db: pycolmap.Database,
     features_path: Path,
     pairs_path: Path,
     matches_path: Path,
@@ -130,8 +112,6 @@ def geometric_verification(
     logger.info('Performing geometric verification of the matches...')
 
     pairs = parse_retrieval(pairs_path)
-    db = pycolmap.Database.open(str(database_path))
-
     inlier_ratios = []
     matched: set[tuple[int, int]] = set()
     for name0 in tqdm(pairs):
@@ -164,12 +144,10 @@ def geometric_verification(
             matched = matched.union({(id0, id1), (id1, id0)})
 
             if matches.shape[0] == 0:
-                two_view_geo = pycolmap.TwoViewGeometry()
-                two_view_geo.inlier_matches = matches
-                db.write_two_view_geometry(id0, id1, two_view_geo)
+                db.write_two_view_geometry(id0, id1, pycolmap.TwoViewGeometry())
                 continue
 
-            cam1_from_cam0 = image1.cam_from_world * image0.cam_from_world.inverse()
+            cam1_from_cam0 = image1.cam_from_world() * image0.cam_from_world().inverse()
             errors0, errors1 = compute_epipolar_errors(cam1_from_cam0, kps0[matches[:, 0]], kps1[matches[:, 1]])
             valid_matches = np.logical_and(
                 errors0 <= cam0.cam_from_img_threshold(noise0 * max_error),
@@ -178,7 +156,7 @@ def geometric_verification(
             # TODO: We could also add E to the database, but we need
             # to reverse the transformations if id0 > id1 in utils/database.py.
             two_view_geo = pycolmap.TwoViewGeometry()
-            two_view_geo.inlier_matches = matches[valid_matches]
+            two_view_geo.inlier_matches = matches[valid_matches, :]
             db.write_two_view_geometry(id0, id1, two_view_geo)
             inlier_ratios.append(np.mean(valid_matches))
 
@@ -189,8 +167,6 @@ def geometric_verification(
         np.min(inlier_ratios) * 100,
         np.max(inlier_ratios) * 100,
     )
-
-    db.close()
 
 
 def run_triangulation(
@@ -206,10 +182,9 @@ def run_triangulation(
     if options is None:
         options = {}
     with OutputCapture(verbose):
-        with pycolmap.ostream():
-            reconstruction = pycolmap.triangulate_points(
-                reference_model, database_path, image_dir, model_path, options=options
-            )
+        reconstruction = pycolmap.triangulate_points(
+            reference_model, database_path, image_dir, model_path, options=options
+        )
     return reconstruction
 
 
@@ -236,20 +211,22 @@ def main(
     reference = pycolmap.Reconstruction(reference_model)
 
     image_ids = create_db_from_model(reference, database)
-    import_features(image_ids, database, features)
-    import_matches(
-        image_ids,
-        database,
-        pairs,
-        matches,
-        min_match_score,
-        skip_geometric_verification,
-    )
+    with pycolmap.Database.open(str(database)) as db:
+        import_features(image_ids, db, features)
+        import_matches(
+            image_ids,
+            db,
+            pairs,
+            matches,
+            min_match_score,
+            skip_geometric_verification,
+        )
     if not skip_geometric_verification:
         if estimate_two_view_geometries:
             estimation_and_geometric_verification(database, pairs, verbose)
         else:
-            geometric_verification(image_ids, reference, database, features, pairs, matches)
+            with pycolmap.Database.open(str(database)) as db:
+                geometric_verification(image_ids, reference, db, features, pairs, matches)
     reconstruction = run_triangulation(sfm_dir, database, image_dir, reference, verbose, mapper_options)
     logger.info('Finished the triangulation with statistics:\n%s', reconstruction.summary())
     return reconstruction

@@ -1,9 +1,10 @@
 import shutil
 import argparse
 import multiprocessing
-from typing import Any
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 
+import tqdm
 import pycolmap
 
 from . import logger
@@ -22,16 +23,16 @@ def create_empty_db(database_path: Path) -> None:
         database_path.unlink()
 
     logger.info('Creating an empty database...')
-    db = pycolmap.Database.open(str(database_path))
-    db.close()
+    with pycolmap.Database.open(str(database_path)) as _:
+        pass
 
 
 def import_images(
     image_dir: Path,
     database_path: Path,
     camera_mode: pycolmap.CameraMode,
-    image_list: list[str] | None = None,
-    options: dict[str, Any] | None = None,
+    image_list: Optional[List[str]] = None,
+    options: Optional[Dict[str, Any]] = None,
 ):
     logger.info('Importing images into the database...')
     if options is None:
@@ -46,19 +47,51 @@ def import_images(
             str(database_path),
             str(image_dir),
             camera_mode,
-            image_list or [],
-            pycolmap.ImageReaderOptions(options),
+            image_names=image_list or [],
+            options=pycolmap.ImageReaderOptions(options),
         )
 
 
 def get_image_ids(database_path: Path) -> dict[str, int]:
-    db = pycolmap.Database.open(str(database_path))
     images = {}
-    for image in db.read_all_images():
-        images[image.name] = image.image_id
-    db.close()
+    with pycolmap.Database.open(str(database_path)) as db:
+        images = {image.name: image.image_id for image in db.read_all_images()}
 
     return images
+
+
+def incremental_mapping(
+    database_path: Path,
+    image_dir: Path,
+    sfm_path: Path,
+    options: Optional[Dict[str, Any]] = None,
+) -> Dict[int, pycolmap.Reconstruction]:
+    num_images = pycolmap.Database.open(str(database_path)).num_images()
+    pbars = []
+
+    def restart_progress_bar():
+        if len(pbars) > 0:
+            pbars[-1].close()
+        pbars.append(
+            tqdm.tqdm(
+                total=num_images,
+                desc=f'Reconstruction {len(pbars)}',
+                unit='images',
+                postfix='registered',
+            )
+        )
+        pbars[-1].update(2)
+
+    reconstructions = pycolmap.incremental_mapping(
+        str(database_path),
+        str(image_dir),
+        str(sfm_path),
+        options=options or {},
+        initial_image_pair_callback=restart_progress_bar,
+        next_image_callback=lambda: pbars[-1].update(1),
+    )
+
+    return reconstructions
 
 
 def run_reconstruction(
@@ -75,15 +108,13 @@ def run_reconstruction(
         options = {}
 
     options = {'num_threads': min(multiprocessing.cpu_count(), 16), **options}
-
     with OutputCapture(verbose):
-        with pycolmap.ostream():
-            reconstructions = pycolmap.incremental_mapping(
-                str(database_path),
-                str(image_dir),
-                str(models_path),
-                options=pycolmap.IncrementalPipelineOptions(options),
-            )
+        reconstructions = pycolmap.incremental_mapping(
+            str(database_path),
+            str(image_dir),
+            str(models_path),
+            options=pycolmap.IncrementalPipelineOptions(options),
+        )
 
     if len(reconstructions) == 0:
         raise RuntimeError('Could not reconstruct any model!')
@@ -101,7 +132,7 @@ def run_reconstruction(
     assert largest_index is not None
     logger.info(f'Largest model is #{largest_index} with {largest_num_images} images.')
 
-    for filename in ['images.bin', 'cameras.bin', 'points3D.bin']:
+    for filename in ['images.bin', 'cameras.bin', 'points3D.bin', 'frames.bin', 'rigs.bin']:
         if (sfm_dir / filename).exists():
             (sfm_dir / filename).unlink()
         shutil.move(str(models_path / str(largest_index) / filename), str(sfm_dir))
@@ -131,18 +162,23 @@ def main(
     sfm_dir.mkdir(parents=True, exist_ok=True)
     database = sfm_dir / 'database.db'
 
+    logger.info(f'Writing COLMAP logs to {sfm_dir / "colmap.LOG.*"}')
+    pycolmap.logging.set_log_destination(pycolmap.logging.INFO, str(sfm_dir / 'colmap.LOG.'))
+
     create_empty_db(database)
     import_images(image_dir, database, camera_mode, image_list, image_options)
     image_ids = get_image_ids(database)
-    import_features(image_ids, database, features)
-    import_matches(
-        image_ids,
-        database,
-        pairs,
-        matches,
-        min_match_score,
-        skip_geometric_verification,
-    )
+
+    with pycolmap.Database.open(str(database)) as db:
+        import_features(image_ids, db, features)
+        import_matches(
+            image_ids,
+            db,
+            pairs,
+            matches,
+            min_match_score,
+            skip_geometric_verification,
+        )
 
     if not skip_geometric_verification:
         estimation_and_geometric_verification(database, pairs, verbose)
