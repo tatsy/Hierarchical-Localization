@@ -1,4 +1,4 @@
-from typing import Mapping
+from typing import List, Mapping
 from pathlib import Path
 
 import cv2
@@ -10,7 +10,7 @@ import numpy.typing as npt
 from .parsers import names_to_pair, names_to_pair_old
 
 
-def read_image(path, grayscale=False):
+def read_image(path: Path, grayscale: bool = False) -> np.ndarray:
     if grayscale:
         mode = cv2.IMREAD_GRAYSCALE
     else:
@@ -26,7 +26,7 @@ def read_image(path, grayscale=False):
     return image
 
 
-def list_h5_names(path):
+def list_h5_names(path: Path) -> List[str]:
     names = []
     with h5py.File(str(path), 'r', libver='latest') as fd:
 
@@ -35,6 +35,7 @@ def list_h5_names(path):
                 names.append(obj.parent.name.strip('/'))
 
         fd.visititems(visit_fn)
+
     return list(set(names))
 
 
