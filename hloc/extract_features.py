@@ -126,6 +126,38 @@ confs = {
             'resize_max': 1024,
         },
     },
+    'dedode-B': {
+        'output': 'feats-dedode-B-n10k-r1600',
+        'model': {
+            'name': 'dedode',
+            'detector_weights': 'L-C4-v2',
+            'descriptor_weights': 'B-upright',
+            'max_keypoints': 10000,
+            'pad_if_not_divisible': True,
+            'apply_imagenet_normalization': True,
+            'amp_dtype': 'float16',
+        },
+        'preprocessing': {
+            'grayscale': False,
+            'resize_max': 1600,
+        },
+    },
+    'dedode-G': {
+        'output': 'feats-dedode-G-n10k-r1600',
+        'model': {
+            'name': 'dedode',
+            'detector_weights': 'L-C4-v2',
+            'descriptor_weights': 'G-upright',
+            'max_keypoints': 10000,
+            'pad_if_not_divisible': True,
+            'apply_imagenet_normalization': True,
+            'amp_dtype': 'float16',
+        },
+        'preprocessing': {
+            'grayscale': False,
+            'resize_max': 1600,
+        },
+    },
     # Global descriptors
     'dir': {
         'output': 'global-feats-dir',
@@ -308,13 +340,12 @@ def main(
                     if name in h5:
                         del h5[name]
 
-                    uncertainty = pred.pop('uncertainty')
-
                     grp = h5.create_group(name)
                     for k, v in pred.items():
                         grp.create_dataset(k, data=v)
 
                     if 'keypoints' in pred:
+                        uncertainty = pred.pop('uncertainty')
                         grp['keypoints'].attrs['uncertainty'] = uncertainty
 
                 except OSError as e:
@@ -333,11 +364,21 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--image_dir', type=Path, required=True)
     parser.add_argument('--export_dir', type=Path, required=True)
-    parser.add_argument('--conf', type=str, default='superpoint_aachen', choices=list(confs.keys()))
+    parser.add_argument('--conf', type=str, default='superpoint_max', choices=list(confs.keys()))
     parser.add_argument('--as_half', action='store_true')
     parser.add_argument('--image_list', type=Path)
     parser.add_argument('--feature_path', type=Path)
+    parser.add_argument('--resize_max', type=int, default=0)
+    parser.add_argument('--max_kps', type=int, default=0)
     args = parser.parse_args()
+
+    conf = confs[args.conf]
+    if args.resize_max > 0:
+        conf['preprocessing']['resize_max'] = args.resize_max
+
+    if args.max_kps > 0:
+        conf['model']['max_keypoints'] = args.max_kps
+
     main(
         confs[args.conf],
         args.image_dir,

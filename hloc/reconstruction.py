@@ -52,7 +52,7 @@ def import_images(
         )
 
 
-def get_image_ids(database_path: Path) -> dict[str, int]:
+def get_image_ids(database_path: Path) -> Dict[str, int]:
     images = {}
     with pycolmap.Database.open(str(database_path)) as db:
         images = {image.name: image.image_id for image in db.read_all_images()}
@@ -205,6 +205,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--camera_mode', type=str, default='AUTO', choices=list(pycolmap.CameraMode.__members__.keys()))
     parser.add_argument('--skip_geometric_verification', action='store_true')
+    parser.add_argument('--skip_reconstruction', action='store_true')
     parser.add_argument('--min_match_score', type=float)
     parser.add_argument('--verbose', action='store_true')
 

@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Dict, List, Tuple
 from pathlib import Path
 from collections import defaultdict
 
@@ -39,19 +40,37 @@ def parse_image_lists(paths, with_intrinsics=False):
     return images
 
 
-def parse_retrieval(path):
+def parse_retrieval(path: Path) -> Dict[str, List[str]]:
+    pairs = parse_pairs(path)
     retrieval = defaultdict(list)
-    with open(path, mode='r', encoding='utf-8') as f:
-        pairs = json.load(f)
-        for q, r in pairs:
-            retrieval[q].append(r)
+    for q, r in pairs:
+        retrieval[q].append(r)
 
     return dict(retrieval)
 
 
-def names_to_pair(name0, name1, separator='/'):
+def parse_pairs(path: Path) -> List[Tuple[str, str]]:
+    if path.suffix == '.txt':
+        with open(path, mode='r') as f:
+            pairs = []
+            for line in f:
+                line = line.strip('\n')
+                if len(line) == 0 or line[0] == '#':
+                    continue
+                name0, name1 = line.split()
+                pairs.append((name0, name1))
+    elif path.suffix == '.json':
+        with open(path, mode='r', encoding='utf-8') as f:
+            pairs = json.load(f)
+    else:
+        raise ValueError(f'Unsupported pairs file format: {path.suffix}')
+
+    return pairs
+
+
+def names_to_pair(name0: str, name1: str, separator: str = '/'):
     return separator.join((name0.replace('/', '-'), name1.replace('/', '-')))
 
 
-def names_to_pair_old(name0, name1):
+def names_to_pair_old(name0: str, name1: str):
     return names_to_pair(name0, name1, separator='_')

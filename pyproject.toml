@@ -5,32 +5,43 @@ requires-python = ">=3.9"
 description = "Tools and baselines for visual localization and mapping."
 authors = [{ name = "Paul-Edouard Sarlin" }]
 readme = "README.md"
-license = { file = "LICENSE" }
+license-files = ["LICENSE"]
+license = "Apache-2.0"
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
 ]
 urls = { git = 'https://github.com/cvg/Hierarchical-Localization' }
 dependencies = [
+  "kornia>=0.6.11",
+  "numpy>=2.0.2",
+  "scipy>=1.13.1",
+  "tqdm>=4.67.3",
+  "opencv-python>=4.13.0.92",
+  "matplotlib>=3.9.4",
+  "plotly>=6.5.2",
+  "h5py>=3.14.0",
+  "gdown>=5.2.1",
+  "pycolmap>=3.13.0",
   "torch>=1.4.0",
   "torchvision>=0.6.0",
-  "numpy",
-  "opencv-python",
-  "tqdm",
-  "matplotlib",
-  "plotly",
-  "scipy",
-  "h5py",
-  "pycolmap>=0.6.0",
-  "kornia>=0.6.11",
-  "gdown",
-  "lightglue @ git+https://github.com/cvg/LightGlue",
+  "lightglue",
 ]
 
-[tool.poetry]
-packages = [{ include = 'hloc' }, { include = "hloc/**/*.py" }]
+[dependency-groups]
+dev = [
+  "flake8>=7.3.0",
+]
+
+[tool.uv.sources]
+lightglue = { git = "https://github.com/cvg/LightGlue" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["hloc"]
+include = ["hloc/**/*.py"]
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling>=1.0.0"]
+build-backend = "hatchling.build"
+
+

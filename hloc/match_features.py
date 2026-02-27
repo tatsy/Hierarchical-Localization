@@ -15,7 +15,12 @@ import torch.multiprocessing as mp
 from tqdm import tqdm
 
 from . import logger, matchers
-from .utils.parsers import names_to_pair, parse_retrieval, names_to_pair_old
+from .utils.parsers import (
+    parse_pairs,
+    names_to_pair,
+    parse_retrieval,
+    names_to_pair_old,
+)
 from .utils.base_model import dynamic_load
 
 """
@@ -258,8 +263,7 @@ def match_from_paths(
     match_path.parent.mkdir(exist_ok=True, parents=True)
 
     assert pairs_path.exists(), pairs_path
-    pairs = parse_retrieval(pairs_path)
-    pairs = [(q, r) for q, rs in pairs.items() for r in rs]
+    pairs = parse_pairs(pairs_path)
     pairs = find_unique_new_pairs(pairs, None if overwrite else match_path)
     if len(pairs) == 0:
         logger.info('Skipping the matching.')
@@ -470,5 +474,13 @@ if __name__ == '__main__':
     parser.add_argument('--features', type=str, default='feats-superpoint-n4096-r1024')
     parser.add_argument('--matches', type=Path)
     parser.add_argument('--conf', type=str, default='superglue', choices=list(confs.keys()))
+    parser.add_argument('--num_workers', type=int, default=1)
     args = parser.parse_args()
-    main(confs[args.conf], args.pairs, args.features, args.export_dir)
+    main(
+        confs[args.conf],
+        pairs=args.pairs,
+        features=args.features,
+        export_dir=args.export_dir,
+        matches=args.matches,
+        num_workers=args.num_workers,
+    )

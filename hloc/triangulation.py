@@ -1,6 +1,5 @@
-import json
 import argparse
-from typing import Any, Dict, Union
+from typing import Any, Set, Dict, Tuple, Union, Optional
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +8,7 @@ from tqdm import tqdm
 
 from . import logger
 from .utils.io import get_matches, get_keypoints
-from .utils.parsers import parse_retrieval
+from .utils.parsers import parse_pairs, parse_retrieval
 from .utils.geometry import compute_epipolar_errors
 
 
@@ -69,10 +68,9 @@ def import_matches(
 ):
     logger.info('Importing matches into the database...')
 
-    with open(str(pairs_path), mode='r', encoding='utf-8') as f:
-        pairs = json.load(f)
+    pairs = parse_pairs(pairs_path)
 
-    matched: set[tuple[int, int]] = set()
+    matched: Set[Tuple[int, int]] = set()
     for name0, name1 in tqdm(pairs):
         id0, id1 = image_ids[name0], image_ids[name1]
         if len({(id0, id1), (id1, id0)} & matched) > 0:
@@ -90,8 +88,26 @@ def import_matches(
 def estimation_and_geometric_verification(database_path: Path, pairs_path: Path, verbose: bool = False):
     logger.info('Performing geometric verification of the matches...')
     options = pycolmap.TwoViewGeometryOptions(
-        {'ransac': pycolmap.RANSACOptions({'max_num_trials': 20000, 'min_inlier_ratio': 0.1})}
+        {
+            'ransac': pycolmap.RANSACOptions(
+                {
+                    'max_num_trials': 20000,
+                    'min_inlier_ratio': 0.1,
+                }
+            )
+        }
     )
+
+    if pairs_path.suffix == '.json':
+        pairs_txt = pairs_path.with_suffix('.txt')
+        if not pairs_txt.exists():
+            pairs = parse_pairs(pairs_path)
+            with open(pairs_txt, mode='w') as f:
+                for name0, name1 in pairs:
+                    f.write(f'{name0} {name1}\n')
+
+        pairs_path = pairs_txt
+
     with OutputCapture(verbose):
         pycolmap.verify_matches(
             str(database_path),
@@ -101,7 +117,7 @@ def estimation_and_geometric_verification(database_path: Path, pairs_path: Path,
 
 
 def geometric_verification(
-    image_ids: dict[str, int],
+    image_ids: Dict[str, int],
     reference: pycolmap.Reconstruction,
     db: pycolmap.Database,
     features_path: Path,
@@ -113,7 +129,7 @@ def geometric_verification(
 
     pairs = parse_retrieval(pairs_path)
     inlier_ratios = []
-    matched: set[tuple[int, int]] = set()
+    matched: Set[Tuple[int, int]] = set()
     for name0 in tqdm(pairs):
         id0 = image_ids[name0]
         image0 = reference.images[id0]
@@ -175,7 +191,7 @@ def run_triangulation(
     image_dir: Path,
     reference_model: pycolmap.Reconstruction,
     verbose: bool = False,
-    options: dict[str, Any] | None = None,
+    options: Optional[Dict[str, Any]] = None,
 ) -> pycolmap.Reconstruction:
     model_path.mkdir(parents=True, exist_ok=True)
     logger.info('Running 3D triangulation...')
@@ -197,9 +213,9 @@ def main(
     matches: Path,
     skip_geometric_verification: bool = False,
     estimate_two_view_geometries: bool = False,
-    min_match_score: float | None = None,
+    min_match_score: Optional[float] = None,
     verbose: bool = False,
-    mapper_options: dict[str, Any] | None = None,
+    mapper_options: Optional[Dict[str, Any]] = None,
 ) -> pycolmap.Reconstruction:
     assert reference_model.exists(), reference_model
     assert features.exists(), features
