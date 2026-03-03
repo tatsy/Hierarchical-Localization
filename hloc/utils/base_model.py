@@ -1,9 +1,11 @@
-import inspect
 import sys
+import inspect
+import logging
 from abc import ABCMeta, abstractmethod
 from copy import copy
+from typing import Any
 
-from torch import nn
+import torch.nn as nn
 
 
 class BaseModel(nn.Module, metaclass=ABCMeta):
@@ -35,14 +37,18 @@ class BaseModel(nn.Module, metaclass=ABCMeta):
         raise NotImplementedError
 
 
-def dynamic_load(root, model):
+def dynamic_load(root, model: str) -> BaseModel:
     module_path = f'{root.__name__}.{model}'
+
+    logging.debug(f'Loading module "{module_path}"')
     module = __import__(module_path, fromlist=[''])
-    classes = inspect.getmembers(module, inspect.isclass)
+    classes: list[tuple[str, Any]] = inspect.getmembers(module, inspect.isclass)
+
     # Filter classes defined in the module
     classes = [c for c in classes if c[1].__module__ == module_path]
+
     # Filter classes inherited from BaseModel
     classes = [c for c in classes if issubclass(c[1], BaseModel)]
-    assert len(classes) == 1, classes
+
+    assert len(classes) == 1, 'There should be exactly one class inherited from BaseModel in the module.'
     return classes[0][1]
-    # return getattr(module, 'Model')

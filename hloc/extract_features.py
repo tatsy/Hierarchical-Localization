@@ -261,7 +261,7 @@ class ImageDataset(torch.utils.data.Dataset):
         return len(self.names)
 
 
-@torch.no_grad()
+@torch.inference_mode()
 def main(
     conf: dict[str, Any],
     image_dir: Path,
@@ -370,6 +370,7 @@ if __name__ == '__main__':
     parser.add_argument('--feature_path', type=Path)
     parser.add_argument('--resize_max', type=int, default=0)
     parser.add_argument('--max_kps', type=int, default=0)
+    parser.add_argument('--overwrite', action='store_true')
     args = parser.parse_args()
 
     conf = confs[args.conf]
@@ -380,10 +381,11 @@ if __name__ == '__main__':
         conf['model']['max_keypoints'] = args.max_kps
 
     main(
-        confs[args.conf],
-        args.image_dir,
-        args.export_dir,
-        args.as_half,
-        args.image_list,
-        args.feature_path,
+        conf=confs[args.conf],
+        image_dir=args.image_dir,
+        export_dir=args.export_dir,
+        as_half=args.as_half,
+        image_list=args.image_list,
+        feature_path=args.feature_path,
+        overwrite=args.overwrite,
     )

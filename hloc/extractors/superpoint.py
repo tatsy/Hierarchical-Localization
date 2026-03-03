@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch.nn.functional as F
 
-from ..utils.base_model import BaseModel
+from hloc.utils.base_model import BaseModel
 
 sys.path.append(str(Path(__file__).parent / '../../third_party'))
 from SuperGluePretrainedNetwork.models import superpoint  # noqa E402
