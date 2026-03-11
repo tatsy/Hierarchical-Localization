@@ -21,11 +21,11 @@ def main(
         elif isinstance(image_list, collections.Iterable):
             names_q = list(image_list)
         else:
-            raise ValueError(f'Unknown type for image list: {image_list}')
+            raise ValueError(f"Unknown type for image list: {image_list}")
     elif features is not None:
         names_q = list_h5_names(features)
     else:
-        raise ValueError('Provide either a list of images or a feature file.')
+        raise ValueError("Provide either a list of images or a feature file.")
 
     self_matching = False
     if ref_list is not None:
@@ -34,7 +34,7 @@ def main(
         elif isinstance(image_list, collections.Iterable):
             names_ref = list(ref_list)
         else:
-            raise ValueError(f'Unknown type for reference image list: {ref_list}')
+            raise ValueError(f"Unknown type for reference image list: {ref_list}")
     elif ref_features is not None:
         names_ref = list_h5_names(ref_features)
     else:
@@ -48,17 +48,17 @@ def main(
                 continue
             pairs.append((n1, n2))
 
-    logger.info(f'Found {len(pairs)} pairs.')
-    with open(output, mode='w', encoding='utf-8') as fp:
+    logger.info(f"Found {len(pairs)} pairs.")
+    with open(output, mode="w", encoding="utf-8") as fp:
         json.dump(pairs, fp, indent=2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--image_list', type=Path)
-    parser.add_argument('--features', type=Path)
-    parser.add_argument('--ref_list', type=Path)
-    parser.add_argument('--ref_features', type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--image_list", type=Path)
+    parser.add_argument("--features", type=Path)
+    parser.add_argument("--ref_list", type=Path)
+    parser.add_argument("--ref_features", type=Path)
     args = parser.parse_args()
     main(**args.__dict__)

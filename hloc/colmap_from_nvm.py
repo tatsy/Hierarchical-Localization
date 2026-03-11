@@ -1,7 +1,7 @@
-import argparse
 import sqlite3
-from collections import defaultdict
+import argparse
 from pathlib import Path
+from collections import defaultdict
 
 import numpy as np
 from tqdm import tqdm
@@ -9,8 +9,8 @@ from tqdm import tqdm
 from . import logger
 from .utils.read_write_model import (
     CAMERA_MODEL_NAMES,
-    Camera,
     Image,
+    Camera,
     Point3D,
     write_model,
 )
@@ -48,7 +48,7 @@ def camera_center_to_translation(c, qvec):
 
 
 def read_nvm_model(nvm_path, intrinsics_path, image_ids, camera_ids, skip_points=False):
-    with open(intrinsics_path, "r") as f:
+    with open(intrinsics_path) as f:
         raw_intrinsics = f.readlines()
 
     logger.info(f"Reading {len(raw_intrinsics)} cameras...")
@@ -69,7 +69,7 @@ def read_nvm_model(nvm_path, intrinsics_path, image_ids, camera_ids, skip_points
         )
         cameras[camera_id] = camera
 
-    nvm_f = open(nvm_path, "r")
+    nvm_f = open(nvm_path)
     line = nvm_f.readline()
     while line == "\n" or line.startswith("NVM_V3"):
         line = nvm_f.readline()

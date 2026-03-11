@@ -1,14 +1,14 @@
-import argparse
 import pickle
+import argparse
 from pathlib import Path
 
 import cv2
 import h5py
 import numpy as np
-import pycolmap
 import torch
-from scipy.io import loadmat
+import pycolmap
 from tqdm import tqdm
+from scipy.io import loadmat
 
 from . import logger
 from .utils.io import write_poses

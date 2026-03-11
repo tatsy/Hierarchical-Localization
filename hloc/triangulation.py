@@ -1,5 +1,5 @@
 import argparse
-from typing import Any, Set, Dict, Tuple, Union, Optional
+from typing import Any
 from pathlib import Path
 
 import numpy as np
@@ -25,10 +25,12 @@ class OutputCapture:
             pycolmap.logging.alsologtostderr = True
 
 
-def create_db_from_model(reconstruction: pycolmap.Reconstruction, database_path: Union[str, Path]) -> Dict[str, int]:
+def create_db_from_model(
+    reconstruction: pycolmap.Reconstruction, database_path: str | Path
+) -> dict[str, int]:
     database_path = Path(database_path)
     if database_path.exists():
-        logger.warning('The database already exists, deleting it.')
+        logger.warning("The database already exists, deleting it.")
         database_path.unlink()
 
     with pycolmap.Database.open(str(database_path)) as db:
@@ -45,12 +47,12 @@ def create_db_from_model(reconstruction: pycolmap.Reconstruction, database_path:
 
 
 def import_features(
-    image_ids: Dict[str, int],
+    image_ids: dict[str, int],
     db: pycolmap.Database,
     features_path: Path,
 ):
-    logger.info('Importing features into the database...')
-    for image_name, image_id in tqdm(image_ids.items(), desc='Importing features'):
+    logger.info("Importing features into the database...")
+    for image_name, image_id in tqdm(image_ids.items(), desc="Importing features"):
         # descriptors = get_descriptors(features_path, image_name)
         keypoints = get_keypoints(features_path, image_name)
         # keypoints += 0.5  # COLMAP origin
@@ -59,18 +61,18 @@ def import_features(
 
 
 def import_matches(
-    image_ids: Dict[str, int],
+    image_ids: dict[str, int],
     db: pycolmap.Database,
     pairs_path: Path,
     matches_path: Path,
     min_match_score: float = 0.0,
     skip_geometric_verification: bool = False,
 ):
-    logger.info('Importing matches into the database...')
+    logger.info("Importing matches into the database...")
 
     pairs = parse_pairs(pairs_path)
 
-    matched: Set[Tuple[int, int]] = set()
+    matched: set[tuple[int, int]] = set()
     for name0, name1 in tqdm(pairs):
         id0, id1 = image_ids[name0], image_ids[name1]
         if len({(id0, id1), (id1, id0)} & matched) > 0:
@@ -82,29 +84,34 @@ def import_matches(
         matched |= {(id0, id1), (id1, id0)}
 
         if skip_geometric_verification:
-            db.write_two_view_geometry(id0, id1, pycolmap.TwoViewGeometry(inlier_matches=matches))
+            db.write_two_view_geometry(
+                id0, id1, pycolmap.TwoViewGeometry(inlier_matches=matches)
+            )
 
 
-def estimation_and_geometric_verification(database_path: Path, pairs_path: Path, verbose: bool = False):
-    logger.info('Performing geometric verification of the matches...')
+def estimation_and_geometric_verification(
+    database_path: Path, pairs_path: Path, verbose: bool = False
+):
+    logger.info("Performing geometric verification of the matches...")
     options = pycolmap.TwoViewGeometryOptions(
         {
-            'ransac': pycolmap.RANSACOptions(
+            "ransac": pycolmap.RANSACOptions(
                 {
-                    'max_num_trials': 20000,
-                    'min_inlier_ratio': 0.1,
+                    "max_num_trials": 100000,
+                    "confidence": 0.9999,
+                    "min_inlier_ratio": 0.1,
                 }
             )
         }
     )
 
-    if pairs_path.suffix == '.json':
-        pairs_txt = pairs_path.with_suffix('.txt')
+    if pairs_path.suffix == ".json":
+        pairs_txt = pairs_path.with_suffix(".txt")
         if not pairs_txt.exists():
             pairs = parse_pairs(pairs_path)
-            with open(pairs_txt, mode='w') as f:
+            with open(pairs_txt, mode="w") as f:
                 for name0, name1 in pairs:
-                    f.write(f'{name0} {name1}\n')
+                    f.write(f"{name0} {name1}\n")
 
         pairs_path = pairs_txt
 
@@ -117,7 +124,7 @@ def estimation_and_geometric_verification(database_path: Path, pairs_path: Path,
 
 
 def geometric_verification(
-    image_ids: Dict[str, int],
+    image_ids: dict[str, int],
     reference: pycolmap.Reconstruction,
     db: pycolmap.Database,
     features_path: Path,
@@ -125,11 +132,11 @@ def geometric_verification(
     matches_path: Path,
     max_error: float = 4.0,
 ):
-    logger.info('Performing geometric verification of the matches...')
+    logger.info("Performing geometric verification of the matches...")
 
     pairs = parse_retrieval(pairs_path)
     inlier_ratios = []
-    matched: Set[Tuple[int, int]] = set()
+    matched: set[tuple[int, int]] = set()
     for name0 in tqdm(pairs):
         id0 = image_ids[name0]
         image0 = reference.images[id0]
@@ -164,7 +171,9 @@ def geometric_verification(
                 continue
 
             cam1_from_cam0 = image1.cam_from_world() * image0.cam_from_world().inverse()
-            errors0, errors1 = compute_epipolar_errors(cam1_from_cam0, kps0[matches[:, 0]], kps1[matches[:, 1]])
+            errors0, errors1 = compute_epipolar_errors(
+                cam1_from_cam0, kps0[matches[:, 0]], kps1[matches[:, 1]]
+            )
             valid_matches = np.logical_and(
                 errors0 <= cam0.cam_from_img_threshold(noise0 * max_error),
                 errors1 <= cam1.cam_from_img_threshold(noise1 * max_error),
@@ -177,7 +186,7 @@ def geometric_verification(
             inlier_ratios.append(np.mean(valid_matches))
 
     logger.info(
-        'mean/med/min/max valid matches %.2f/%.2f/%.2f/%.2f%%.',
+        "mean/med/min/max valid matches %.2f/%.2f/%.2f/%.2f%%.",
         np.mean(inlier_ratios) * 100,
         np.median(inlier_ratios) * 100,
         np.min(inlier_ratios) * 100,
@@ -191,10 +200,10 @@ def run_triangulation(
     image_dir: Path,
     reference_model: pycolmap.Reconstruction,
     verbose: bool = False,
-    options: Optional[Dict[str, Any]] = None,
+    options: dict[str, Any] | None = None,
 ) -> pycolmap.Reconstruction:
     model_path.mkdir(parents=True, exist_ok=True)
-    logger.info('Running 3D triangulation...')
+    logger.info("Running 3D triangulation...")
     if options is None:
         options = {}
     with OutputCapture(verbose):
@@ -213,9 +222,9 @@ def main(
     matches: Path,
     skip_geometric_verification: bool = False,
     estimate_two_view_geometries: bool = False,
-    min_match_score: Optional[float] = None,
+    min_match_score: float | None = None,
     verbose: bool = False,
-    mapper_options: Optional[Dict[str, Any]] = None,
+    mapper_options: dict[str, Any] | None = None,
 ) -> pycolmap.Reconstruction:
     assert reference_model.exists(), reference_model
     assert features.exists(), features
@@ -223,7 +232,7 @@ def main(
     assert matches.exists(), matches
 
     sfm_dir.mkdir(parents=True, exist_ok=True)
-    database = sfm_dir / 'database.db'
+    database = sfm_dir / "database.db"
     reference = pycolmap.Reconstruction(reference_model)
 
     image_ids = create_db_from_model(reference, database)
@@ -242,18 +251,24 @@ def main(
             estimation_and_geometric_verification(database, pairs, verbose)
         else:
             with pycolmap.Database.open(str(database)) as db:
-                geometric_verification(image_ids, reference, db, features, pairs, matches)
-    reconstruction = run_triangulation(sfm_dir, database, image_dir, reference, verbose, mapper_options)
-    logger.info('Finished the triangulation with statistics:\n%s', reconstruction.summary())
+                geometric_verification(
+                    image_ids, reference, db, features, pairs, matches
+                )
+    reconstruction = run_triangulation(
+        sfm_dir, database, image_dir, reference, verbose, mapper_options
+    )
+    logger.info(
+        "Finished the triangulation with statistics:\n%s", reconstruction.summary()
+    )
     return reconstruction
 
 
 def parse_option_args(args: list[str], default_options) -> dict[str, Any]:
     options = {}
     for arg in args:
-        idx = arg.find('=')
+        idx = arg.find("=")
         if idx == -1:
-            raise ValueError('Options format: key1=value1 key2=value2 etc.')
+            raise ValueError("Options format: key1=value1 key2=value2 etc.")
         key, value = arg[:idx], arg[idx + 1 :]
         if not hasattr(default_options, key):
             raise ValueError(
@@ -262,26 +277,30 @@ def parse_option_args(args: list[str], default_options) -> dict[str, Any]:
         value = eval(value)
         target_type = type(getattr(default_options, key))
         if not isinstance(value, target_type):
-            raise ValueError(f'Incorrect type for option "{key}": {type(value)} vs {target_type}')
+            raise ValueError(
+                f'Incorrect type for option "{key}": {type(value)} vs {target_type}'
+            )
         options[key] = value
     return options
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--sfm_dir', type=Path, required=True)
-    parser.add_argument('--reference_sfm_model', type=Path, required=True)
-    parser.add_argument('--image_dir', type=Path, required=True)
+    parser.add_argument("--sfm_dir", type=Path, required=True)
+    parser.add_argument("--reference_sfm_model", type=Path, required=True)
+    parser.add_argument("--image_dir", type=Path, required=True)
 
-    parser.add_argument('--pairs', type=Path, required=True)
-    parser.add_argument('--features', type=Path, required=True)
-    parser.add_argument('--matches', type=Path, required=True)
+    parser.add_argument("--pairs", type=Path, required=True)
+    parser.add_argument("--features", type=Path, required=True)
+    parser.add_argument("--matches", type=Path, required=True)
 
-    parser.add_argument('--skip_geometric_verification', action='store_true')
-    parser.add_argument('--min_match_score', type=float)
-    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument("--skip_geometric_verification", action="store_true")
+    parser.add_argument("--min_match_score", type=float)
+    parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args().__dict__
 
-    mapper_options = parse_option_args(args.pop('mapper_options'), pycolmap.IncrementalMapperOptions())
+    mapper_options = parse_option_args(
+        args.pop("mapper_options"), pycolmap.IncrementalMapperOptions()
+    )
 
     main(**args, mapper_options=mapper_options)

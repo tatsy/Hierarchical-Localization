@@ -1,7 +1,7 @@
 [project]
 name = "hloc"
 version = "1.5.1"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 description = "Tools and baselines for visual localization and mapping."
 authors = [{ name = "Paul-Edouard Sarlin" }]
 readme = "README.md"
@@ -30,7 +30,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-  "flake8>=7.3.0",
+  "mypy>=1.19.1",
+  "ruff>=0.15.5",
 ]
 
 [tool.uv.sources]
@@ -44,4 +45,24 @@ include = ["hloc/**/*.py"]
 requires = ["hatchling>=1.0.0"]
 build-backend = "hatchling.build"
 
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+exclude = [".git", "__pycache__", "build", ".venv"]
 
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E203"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+follow_imports = "silent"
+plugins = ["numpy.typing.mypy_plugin"]
+disallow_any_generics = true
+strict_optional = true
+check_untyped_defs = true
+allow_redefinition = true

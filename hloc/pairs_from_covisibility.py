@@ -1,6 +1,6 @@
 import argparse
-from collections import defaultdict
 from pathlib import Path
+from collections import defaultdict
 
 import numpy as np
 from tqdm import tqdm

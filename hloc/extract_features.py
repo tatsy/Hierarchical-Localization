@@ -158,6 +158,17 @@ confs = {
             'resize_max': 1600,
         },
     },
+    'xfeat': {
+        'output': 'feats-xfeat',
+        'model': {
+            'name': 'xfeat',
+            'max_keypoints': 4096,
+        },
+        'preprocessing': {
+            'grayscale': False,
+            'resize_max': 1600,
+        },
+    },
     # Global descriptors
     'dir': {
         'output': 'global-feats-dir',

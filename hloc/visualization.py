@@ -6,7 +6,7 @@ import pycolmap
 from matplotlib import cm
 
 from .utils.io import read_image
-from .utils.viz import add_text, cm_RdGn, plot_images, plot_keypoints, plot_matches
+from .utils.viz import cm_RdGn, add_text, plot_images, plot_matches, plot_keypoints
 
 
 def visualize_sfm_2d(

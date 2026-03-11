@@ -30,69 +30,76 @@ line using their name. Each is a dictionary with the following entries:
     - model: the model configuration, as passed to a feature matcher.
 """
 confs = {
-    'superpoint+lightglue': {
-        'output': 'matches-superpoint-lightglue',
-        'model': {
-            'name': 'lightglue',
-            'features': 'superpoint',
+    "superpoint+lightglue": {
+        "output": "matches-superpoint-lightglue",
+        "model": {
+            "name": "lightglue",
+            "features": "superpoint",
         },
     },
-    'disk+lightglue': {
-        'output': 'matches-disk-lightglue',
-        'model': {
-            'name': 'lightglue',
-            'features': 'disk',
+    "disk+lightglue": {
+        "output": "matches-disk-lightglue",
+        "model": {
+            "name": "lightglue",
+            "features": "disk",
         },
     },
-    'aliked+lightglue': {
-        'output': 'matches-aliked-lightglue',
-        'model': {
-            'name': 'lightglue',
-            'features': 'aliked',
+    "aliked+lightglue": {
+        "output": "matches-aliked-lightglue",
+        "model": {
+            "name": "lightglue",
+            "features": "aliked",
         },
     },
-    'superglue': {
-        'output': 'matches-superglue',
-        'model': {
-            'name': 'superglue',
-            'weights': 'outdoor',
-            'sinkhorn_iterations': 50,
+    "xfeat+lightglue": {
+        "output": "matches-xfeat-lightglue",
+        "model": {
+            "name": "xfeat_lightglue",
+            "features": "xfeat",
         },
     },
-    'superglue-fast': {
-        'output': 'matches-superglue-it5',
-        'model': {
-            'name': 'superglue',
-            'weights': 'outdoor',
-            'sinkhorn_iterations': 5,
+    "superglue": {
+        "output": "matches-superglue",
+        "model": {
+            "name": "superglue",
+            "weights": "outdoor",
+            "sinkhorn_iterations": 50,
         },
     },
-    'NN-superpoint': {
-        'output': 'matches-NN-mutual-dist.7',
-        'model': {
-            'name': 'nearest_neighbor',
-            'do_mutual_check': True,
-            'distance_threshold': 0.7,
+    "superglue-fast": {
+        "output": "matches-superglue-it5",
+        "model": {
+            "name": "superglue",
+            "weights": "outdoor",
+            "sinkhorn_iterations": 5,
         },
     },
-    'NN-ratio': {
-        'output': 'matches-NN-mutual-ratio.8',
-        'model': {
-            'name': 'nearest_neighbor',
-            'do_mutual_check': True,
-            'ratio_threshold': 0.8,
+    "NN-superpoint": {
+        "output": "matches-NN-mutual-dist.7",
+        "model": {
+            "name": "nearest_neighbor",
+            "do_mutual_check": True,
+            "distance_threshold": 0.7,
         },
     },
-    'NN-mutual': {
-        'output': 'matches-NN-mutual',
-        'model': {
-            'name': 'nearest_neighbor',
-            'do_mutual_check': True,
+    "NN-ratio": {
+        "output": "matches-NN-mutual-ratio.8",
+        "model": {
+            "name": "nearest_neighbor",
+            "do_mutual_check": True,
+            "ratio_threshold": 0.8,
         },
     },
-    'adalam': {
-        'output': 'matches-adalam',
-        'model': {'name': 'adalam'},
+    "NN-mutual": {
+        "output": "matches-NN-mutual",
+        "model": {
+            "name": "nearest_neighbor",
+            "do_mutual_check": True,
+        },
+    },
+    "adalam": {
+        "output": "matches-adalam",
+        "model": {"name": "adalam"},
     },
 }
 
@@ -100,7 +107,9 @@ confs = {
 class WorkQueue:
     def __init__(self, work_fn, num_threads=1):
         self.queue = Queue(num_threads)
-        self.threads = [Thread(target=self.thread_fn, args=(work_fn,)) for _ in range(num_threads)]
+        self.threads = [
+            Thread(target=self.thread_fn, args=(work_fn,)) for _ in range(num_threads)
+        ]
         for thread in self.threads:
             thread.start()
 
@@ -122,7 +131,9 @@ class WorkQueue:
 
 
 class FeaturePairsDataset(torch.utils.data.Dataset):
-    def __init__(self, pairs: list[tuple[str, str]], feature_path_q: Path, feature_path_r: Path):
+    def __init__(
+        self, pairs: list[tuple[str, str]], feature_path_q: Path, feature_path_r: Path
+    ):
         self.pairs = pairs
         self.feature_path_q = feature_path_q
         self.feature_path_r = feature_path_r
@@ -130,30 +141,30 @@ class FeaturePairsDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx: int):
         name0, name1 = self.pairs[idx]
 
-        data: dict[str, Any] = {'name0': name0, 'name1': name1}
-        with h5py.File(self.feature_path_q, mode='r') as fd:
+        data: dict[str, Any] = {"name0": name0, "name1": name1}
+        with h5py.File(self.feature_path_q, mode="r") as fd:
             grp = fd[name0]
             assert isinstance(grp, h5py.Group)
 
             for k, v in grp.items():
-                data[k + '0'] = torch.from_numpy(v.__array__()).float()
+                data[k + "0"] = torch.from_numpy(v.__array__()).float()
             # some matchers might expect an image but only use its size
-            image_size = grp.get('image_size')
+            image_size = grp.get("image_size")
             assert isinstance(image_size, h5py.Dataset)
 
-            data['image0'] = torch.empty((1,) + tuple(image_size)[::-1])
+            data["image0"] = torch.empty((1,) + tuple(image_size)[::-1])
 
-        with h5py.File(self.feature_path_r, mode='r') as fd:
+        with h5py.File(self.feature_path_r, mode="r") as fd:
             grp = fd[name1]
             assert isinstance(grp, h5py.Group)
 
             for k, v in grp.items():
-                data[k + '1'] = torch.from_numpy(v.__array__()).float()
+                data[k + "1"] = torch.from_numpy(v.__array__()).float()
 
-            image_size = grp.get('image_size')
+            image_size = grp.get("image_size")
             assert isinstance(image_size, h5py.Dataset)
 
-            data['image1'] = torch.empty((1,) + tuple(image_size)[::-1])
+            data["image1"] = torch.empty((1,) + tuple(image_size)[::-1])
 
         return data
 
@@ -163,15 +174,15 @@ class FeaturePairsDataset(torch.utils.data.Dataset):
 
 def writer_fn(inp, match_path):
     pair, pred = inp
-    with h5py.File(str(match_path), mode='a', libver='latest') as fd:
+    with h5py.File(str(match_path), mode="a", libver="latest") as fd:
         if pair in fd:
             del fd[pair]
         grp = fd.create_group(pair)
-        matches = pred['matches0'].astype(np.int16)
-        grp.create_dataset('matches0', data=matches)
-        if 'matching_scores0' in pred:
-            scores = pred['matching_scores0'].astype(np.float16)
-            grp.create_dataset('matching_scores0', data=scores)
+        matches = pred["matches0"].astype(np.int16)
+        grp.create_dataset("matches0", data=matches)
+        if "matching_scores0" in pred:
+            scores = pred["matching_scores0"].astype(np.float16)
+            grp.create_dataset("matching_scores0", data=scores)
 
 
 def main(
@@ -187,13 +198,17 @@ def main(
     if isinstance(features, Path) or Path(features).exists():
         features_q = Path(features)
         if matches is None:
-            raise ValueError('Either provide both features and matches as Path or both as names.')
+            raise ValueError(
+                "Either provide both features and matches as Path or both as names."
+            )
     else:
         if export_dir is None:
-            raise ValueError(f'Provide an export_dir if features is not a file path: {features}.')
-        features_q = Path(export_dir, features + '.h5')
+            raise ValueError(
+                f"Provide an export_dir if features is not a file path: {features}."
+            )
+        features_q = Path(export_dir, features + ".h5")
         if matches is None:
-            matches = Path(export_dir, f'{features}_{conf["output"]}_{pairs.stem}.h5')
+            matches = Path(export_dir, f"{features}_{conf['output']}_{pairs.stem}.h5")
 
     if features_ref is None:
         features_ref = features_q
@@ -221,7 +236,9 @@ def main(
     return matches
 
 
-def find_unique_new_pairs(pairs_all: list[tuple[str, str]], match_path: Path | None = None):
+def find_unique_new_pairs(
+    pairs_all: list[tuple[str, str]], match_path: Path | None = None
+):
     """Avoid to recompute duplicates to save time."""
     pairs = set()
     for i, j in pairs_all:
@@ -230,7 +247,7 @@ def find_unique_new_pairs(pairs_all: list[tuple[str, str]], match_path: Path | N
 
     pairs = list(pairs)
     if match_path is not None and match_path.exists():
-        with h5py.File(str(match_path), 'r', libver='latest') as fd:
+        with h5py.File(str(match_path), "r", libver="latest") as fd:
             pairs_filtered = []
             for i, j in pairs:
                 if (
@@ -254,30 +271,32 @@ def match_from_paths(
     feature_path_ref: Path,
     overwrite: bool = False,
 ) -> None:
-    logger.info(f'Matching local features with configuration:\n{pprint.pformat(conf)}')
+    logger.info(f"Matching local features with configuration:\n{pprint.pformat(conf)}")
 
     if not feature_path_q.exists():
-        raise FileNotFoundError(f'Query feature file {feature_path_q}.')
+        raise FileNotFoundError(f"Query feature file {feature_path_q}.")
     if not feature_path_ref.exists():
-        raise FileNotFoundError(f'Reference feature file {feature_path_ref}.')
+        raise FileNotFoundError(f"Reference feature file {feature_path_ref}.")
     match_path.parent.mkdir(exist_ok=True, parents=True)
 
     assert pairs_path.exists(), pairs_path
     pairs = parse_pairs(pairs_path)
     pairs = find_unique_new_pairs(pairs, None if overwrite else match_path)
     if len(pairs) == 0:
-        logger.info('Skipping the matching.')
+        logger.info("Skipping the matching.")
         return
 
     if torch.cuda.is_available():
-        device = torch.device('cuda')
-        logger.info(f'Using GPU ({torch.cuda.get_device_name(0)}) for feature matching.')
+        device = torch.device("cuda")
+        logger.info(
+            f"Using GPU ({torch.cuda.get_device_name(0)}) for feature matching."
+        )
     else:
-        device = torch.device('cpu')
-        logger.info('Using CPU for feature matching.')
+        device = torch.device("cpu")
+        logger.info("Using CPU for feature matching.")
 
-    Matcher = dynamic_load(matchers, conf['model']['name'])
-    model = Matcher(conf['model']).eval().to(device)
+    Matcher = dynamic_load(matchers, conf["model"]["name"])
+    model = Matcher(conf["model"]).eval().to(device)
 
     num_workers = multiprocessing.cpu_count() // 2
     dataset = FeaturePairsDataset(pairs, feature_path_q, feature_path_ref)
@@ -294,20 +313,22 @@ def match_from_paths(
         num_threads=num_workers,
     )
 
-    match_data_keys = ['matches0', 'matches1', 'matching_scores0', 'matching_scores1']
-    for data in tqdm(loader, desc='Matching features'):
-        B = len(data['name0'])
+    match_data_keys = ["matches0", "matches1", "matching_scores0", "matching_scores1"]
+    for data in tqdm(loader, desc="Matching features"):
+        B = len(data["name0"])
         inputs = {}
         for k, v in data.items():
-            if k.startswith('image') or k.startswith('name'):
+            if k.startswith("image") or k.startswith("name"):
                 inputs[k] = v
             else:
                 inputs[k] = v.to(device)
 
         outputs = model(inputs)
         for b in range(B):
-            pred = {k: outputs[k][b].cpu().numpy() for k in match_data_keys if k in outputs}
-            pair = names_to_pair(data['name0'][b], data['name1'][b])
+            pred = {
+                k: outputs[k][b].cpu().numpy() for k in match_data_keys if k in outputs
+            }
+            pair = names_to_pair(data["name0"][b], data["name1"][b])
             writer_queue.put((pair, pred))
 
     writer_queue.join()
@@ -323,12 +344,12 @@ def match_from_paths_mp(
     num_workers: int = 4,
     overwrite: bool = False,
 ) -> None:
-    logger.info(f'Matching local features with configuration:\n{pprint.pformat(conf)}')
+    logger.info(f"Matching local features with configuration:\n{pprint.pformat(conf)}")
 
     if not feature_path_q.exists():
-        raise FileNotFoundError(f'Query feature file {feature_path_q}.')
+        raise FileNotFoundError(f"Query feature file {feature_path_q}.")
     if not feature_path_ref.exists():
-        raise FileNotFoundError(f'Reference feature file {feature_path_ref}.')
+        raise FileNotFoundError(f"Reference feature file {feature_path_ref}.")
     match_path.parent.mkdir(exist_ok=True, parents=True)
 
     assert pairs_path.exists(), pairs_path
@@ -336,12 +357,12 @@ def match_from_paths_mp(
     pairs = [(q, r) for q, rs in pairs.items() for r in rs]
     pairs = find_unique_new_pairs(pairs, None if overwrite else match_path)
     if len(pairs) == 0:
-        logger.info('Skipping the matching.')
+        logger.info("Skipping the matching.")
         return
 
     num_gpus = torch.cuda.device_count()
     if num_gpus == 0:
-        raise RuntimeError('No GPU available for multi-processing matching.')
+        raise RuntimeError("No GPU available for multi-processing matching.")
 
     world_size = num_workers
 
@@ -352,7 +373,7 @@ def match_from_paths_mp(
     n_pairs = len(pairs)
     chunksize = min(n_pairs, world_size * 128)
 
-    pbar = tqdm(total=n_pairs, desc=f'Matching features ({num_gpus} GPUs)')
+    pbar = tqdm(total=n_pairs, desc=f"Matching features ({num_gpus} GPUs)")
     for i in range(0, n_pairs, chunksize):
         i0 = i
         i1 = min(i + chunksize, n_pairs)
@@ -381,11 +402,11 @@ def match_from_paths_mp(
     result_queue.put(None)
     writer.join()
 
-    logger.info('Finished exporting matches.')
+    logger.info("Finished exporting matches.")
 
 
 def write_process(result_queue: Any, match_path: Path) -> None:
-    with h5py.File(str(match_path), mode='a', libver='latest') as fd:
+    with h5py.File(str(match_path), mode="a", libver="latest") as fd:
         while True:
             item = result_queue.get()
             if item is None:
@@ -396,11 +417,11 @@ def write_process(result_queue: Any, match_path: Path) -> None:
                 del fd[pair]
 
             grp = fd.create_group(pair)
-            matches = pred['matches0'].astype(np.int16)
-            grp.create_dataset('matches0', data=matches)
-            if 'matching_scores0' in pred:
-                scores = pred['matching_scores0'].astype(np.float16)
-                grp.create_dataset('matching_scores0', data=scores)
+            matches = pred["matches0"].astype(np.int16)
+            grp.create_dataset("matches0", data=matches)
+            if "matching_scores0" in pred:
+                scores = pred["matching_scores0"].astype(np.float16)
+                grp.create_dataset("matching_scores0", data=scores)
 
 
 def run_match_process(
@@ -415,21 +436,21 @@ def run_match_process(
     result_queue: Any = None,
 ) -> None:
     # Disable using multiple threads in each process
-    omp_threads = os.environ.get('OMP_NUM_THREADS', '')
-    mkl_threads = os.environ.get('MKL_NUM_THREADS', '')
-    openblas_threads = os.environ.get('OPENBLAS_NUM_THREADS', '')
+    omp_threads = os.environ.get("OMP_NUM_THREADS", "")
+    mkl_threads = os.environ.get("MKL_NUM_THREADS", "")
+    openblas_threads = os.environ.get("OPENBLAS_NUM_THREADS", "")
 
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
-    os.environ['OMP_NUM_THREADS'] = '1'
-    os.environ['MKL_NUM_THREADS'] = '1'
-    os.environ['OPENBLAS_NUM_THREADS'] = '1'
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
     # Set device for each process
     gpu_id = global_rank % num_gpus
-    device = torch.device(f'cuda:{gpu_id}')
-    Matcher = dynamic_load(matchers, conf['model']['name'])
-    model = Matcher(conf['model']).eval().to(device)
+    device = torch.device(f"cuda:{gpu_id}")
+    Matcher = dynamic_load(matchers, conf["model"]["name"])
+    model = Matcher(conf["model"]).eval().to(device)
 
     sub_pairs = [pair for i, pair in enumerate(pairs) if i % world_size == global_rank]
     dataset = FeaturePairsDataset(sub_pairs, feature_path_q, feature_path_ref)
@@ -443,38 +464,50 @@ def run_match_process(
 
     assert result_queue is not None
     with torch.inference_mode():
-        match_data_keys = ['matches0', 'matches1', 'matching_scores0', 'matching_scores1']
+        match_data_keys = [
+            "matches0",
+            "matches1",
+            "matching_scores0",
+            "matching_scores1",
+        ]
         for data in loader:
-            B = len(data['name0'])
+            B = len(data["name0"])
             inputs = {}
             for k, v in data.items():
-                if k.startswith('image') or k.startswith('name'):
+                if k.startswith("image") or k.startswith("name"):
                     inputs[k] = v
                 else:
                     inputs[k] = v.to(device, non_blocking=True)
 
             outputs = model(inputs)
             for b in range(B):
-                pred = {k: outputs[k][b].cpu().numpy() for k in match_data_keys if k in outputs}
-                pair = names_to_pair(data['name0'][b], data['name1'][b])
+                pred = {
+                    k: outputs[k][b].cpu().numpy()
+                    for k in match_data_keys
+                    if k in outputs
+                }
+                pair = names_to_pair(data["name0"][b], data["name1"][b])
                 result_queue.put((pair, pred))
 
-    print(f'[rank {global_rank}] done.')
+    print(f"[rank {global_rank}] done.")
 
     # Restore thread settings
-    os.environ['OMP_NUM_THREADS'] = omp_threads
-    os.environ['MKL_NUM_THREADS'] = mkl_threads
-    os.environ['OPENBLAS_NUM_THREADS'] = openblas_threads
+    os.environ["OMP_NUM_THREADS"] = omp_threads
+    os.environ["MKL_NUM_THREADS"] = mkl_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = openblas_threads
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--pairs', type=Path, required=True)
-    parser.add_argument('--export_dir', type=Path)
-    parser.add_argument('--features', type=str, default='feats-superpoint-n4096-r1024')
-    parser.add_argument('--matches', type=Path)
-    parser.add_argument('--conf', type=str, default='superglue', choices=list(confs.keys()))
-    parser.add_argument('--num_workers', type=int, default=1)
+    parser.add_argument("--pairs", type=Path, required=True)
+    parser.add_argument("--export_dir", type=Path)
+    parser.add_argument("--features", type=str, default="feats-superpoint-n4096-r1024")
+    parser.add_argument("--matches", type=Path)
+    parser.add_argument(
+        "--conf", type=str, default="superglue", choices=list(confs.keys())
+    )
+    parser.add_argument("--num_workers", type=int, default=1)
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     main(
         confs[args.conf],
@@ -483,4 +516,5 @@ if __name__ == '__main__':
         export_dir=args.export_dir,
         matches=args.matches,
         num_workers=args.num_workers,
+        overwrite=args.overwrite,
     )

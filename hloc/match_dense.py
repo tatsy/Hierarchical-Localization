@@ -1,10 +1,11 @@
 import pprint
 import argparse
 from types import SimpleNamespace
-from typing import Any, Set, Dict, List, Tuple, Union, Iterable, Optional
+from typing import Any, Set, Dict, List, Tuple, Union, Optional
 from pathlib import Path
 from itertools import chain
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 
 import h5py
 import numpy as np
@@ -37,28 +38,90 @@ from .utils.base_model import dynamic_load
 
 confs = {
     # Best quality but loads of points. Only use for small scenes
-    'loftr': {
-        'output': 'matches_loftr',
-        'model': {'name': 'loftr', 'weights': 'outdoor'},
-        'preprocessing': {'grayscale': True, 'resize_max': 1024, 'dfactor': 8},
-        'max_error': 1,  # max error for assigned keypoints (in px)
-        'cell_size': 1,  # size of quantization patch (max 1 kp/patch)
+    "loftr": {
+        "output": "matches_loftr",
+        "model": {"name": "loftr", "weights": "outdoor"},
+        "preprocessing": {"grayscale": True, "resize_max": 1024, "dfactor": 8},
+        "max_error": 1,  # max error for assigned keypoints (in px)
+        "cell_size": 1,  # size of quantization patch (max 1 kp/patch)
     },
     # Semi-scalable loftr which limits detected keypoints
-    'loftr_aachen': {
-        'output': 'matches_loftr_aachen',
-        'model': {'name': 'loftr', 'weights': 'outdoor'},
-        'preprocessing': {'grayscale': True, 'resize_max': 1024, 'dfactor': 8},
-        'max_error': 2,  # max error for assigned keypoints (in px)
-        'cell_size': 8,  # size of quantization patch (max 1 kp/patch)
+    "loftr_aachen": {
+        "output": "matches_loftr_aachen",
+        "model": {"name": "loftr", "weights": "outdoor"},
+        "preprocessing": {"grayscale": True, "resize_max": 1024, "dfactor": 8},
+        "max_error": 2,  # max error for assigned keypoints (in px)
+        "cell_size": 8,  # size of quantization patch (max 1 kp/patch)
     },
     # Use for matching superpoint feats with loftr
-    'loftr_superpoint': {
-        'output': 'matches_loftr_superpoint',
-        'model': {'name': 'loftr', 'weights': 'outdoor'},
-        'preprocessing': {'grayscale': True, 'resize_max': 1024, 'dfactor': 8},
-        'max_error': 4,  # max error for assigned keypoints (in px)
-        'cell_size': 4,  # size of quantization patch (max 1 kp/patch)
+    "loftr_superpoint": {
+        "output": "matches_loftr_superpoint",
+        "model": {"name": "loftr", "weights": "outdoor"},
+        "preprocessing": {"grayscale": True, "resize_max": 1024, "dfactor": 8},
+        "max_error": 4,  # max error for assigned keypoints (in px)
+        "cell_size": 4,  # size of quantization patch (max 1 kp/patch)
+    },
+    "xfeat_star": {
+        "output": "matches-xfeat_star",
+        "model": {
+            "name": "xfeat_star",
+            "repo": "verlab/accelerated_features",
+            "pretrained": True,
+            "top_k": 8192,
+            "multiscale": True,
+            "fine_conf": 0.25,
+            "min_cossim": -1.0,
+            "detection_threshold": 0.05,
+        },
+        "preprocessing": {
+            "grayscale": False,
+            "resize_max": 1600,
+            "dfactor": 32,
+        },
+        "max_error": 2,
+        "cell_size": 2,
+    },
+    "eloftr_full": {
+        "output": "matches-eloftr_full",
+        "model": {
+            "name": "eloftr",
+            "repo_path": "third_party/EfficientLoFTR",
+            "weights_path": "third_party/EfficientLoFTR/weights/eloftr_outdoor.ckpt",
+            "model_type": "full",
+            "precision": "fp32",
+            "match_threshold": 0.2,
+            "npe": [832, 832, 1024, 1024],  # optional
+            "max_num_matches": None,
+            "normalize_opt_scores": True,
+        },
+        "preprocessing": {
+            "grayscale": True,
+            "resize_max": 1024,
+            "dfactor": 32,
+        },
+        "max_error": 1,
+        "cell_size": 1,
+    },
+    "eloftr_opt": {
+        "output": "matches-eloftr_full",
+        "model": {
+            "name": "eloftr",
+            "repo_path": "third_party/EfficientLoFTR",
+            "weights_path": "third_party/EfficientLoFTR/weights/eloftr_outdoor.ckpt",
+            "model_type": "full",
+            "precision": "fp32",
+            "match_threshold": 0.2,
+            "npe": [832, 832, 1024, 1024],  # optional
+            "max_num_matches": None,
+            "normalize_opt_scores": True,
+        },
+        "preprocessing": {
+            "grayscale": True,
+            "resize_max": 1024,
+            "dfactor": 32,
+        },
+        "max_error": 1,
+        "cell_size": 1,
     },
 }
 
@@ -71,12 +134,12 @@ def to_cpts(kpts, ps):
 
 def assign_keypoints(
     kpts: np.ndarray,
-    other_cpts: Union[List[Tuple], np.ndarray],
+    other_cpts: list[tuple] | np.ndarray,
     max_error: float,
     update: bool = False,
-    ref_bins: Optional[List[Counter]] = None,
-    scores: Optional[np.ndarray] = None,
-    cell_size: Optional[int] = None,
+    ref_bins: list[Counter] | None = None,
+    scores: np.ndarray | None = None,
+    cell_size: int | None = None,
 ):
     if not update:
         # Without update this is just a NN search
@@ -163,10 +226,10 @@ def scale_keypoints(kpts, scale):
 
 class ImagePairDataset(torch.utils.data.Dataset):
     default_conf = {
-        'grayscale': True,
-        'resize_max': 1024,
-        'dfactor': 8,
-        'cache_images': False,
+        "grayscale": True,
+        "resize_max": 1024,
+        "dfactor": 8,
+        "cache_images": False,
     }
 
     def __init__(self, image_dir, conf, pairs):
@@ -175,7 +238,7 @@ class ImagePairDataset(torch.utils.data.Dataset):
         self.pairs = pairs
         if self.conf.cache_images:
             image_names = set(sum(pairs, ()))  # unique image names in pairs
-            logger.info(f'Loading and caching {len(image_names)} unique images.')
+            logger.info(f"Loading and caching {len(image_names)} unique images.")
             self.images = {}
             self.scales = {}
             for name in tqdm(image_names):
@@ -191,7 +254,7 @@ class ImagePairDataset(torch.utils.data.Dataset):
             scale = self.conf.resize_max / max(size)
             if scale < 1.0:
                 size_new = tuple(int(round(x * scale)) for x in size)
-                image = resize_image(image, size_new, 'cv2_area')
+                image = resize_image(image, size_new, "cv2_area")
                 scale = np.array(size) / np.array(size_new)
 
         if self.conf.grayscale:
@@ -230,21 +293,23 @@ class ImagePairDataset(torch.utils.data.Dataset):
 
 @torch.inference_mode()
 def match_dense(
-    conf: Dict[str, Any],
-    pairs: List[Tuple[str, str]],
+    conf: dict[str, Any],
+    pairs: list[tuple[str, str]],
     image_dir: Path,
     match_path: Path,  # out
-    existing_refs: Optional[Set[str]] = set(),
+    existing_refs: set[str] | None = set(),
 ):
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    Model = dynamic_load(matchers, conf['model']['name'])
-    model = Model(conf['model']).eval().to(device)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    Model = dynamic_load(matchers, conf["model"]["name"])
+    model = Model(conf["model"]).eval().to(device)
 
-    dataset = ImagePairDataset(image_dir, conf['preprocessing'], pairs)
-    loader = torch.utils.data.DataLoader(dataset, num_workers=16, batch_size=1, shuffle=False)
+    dataset = ImagePairDataset(image_dir, conf["preprocessing"], pairs)
+    loader = torch.utils.data.DataLoader(
+        dataset, num_workers=16, batch_size=1, shuffle=False
+    )
 
-    logger.info('Performing dense matching...')
-    with h5py.File(str(match_path), mode='a') as fd:
+    logger.info("Performing dense matching...")
+    with h5py.File(str(match_path), mode="a") as fd:
         for data in tqdm(loader, smoothing=0.1):
             # load image-pair data
             image0, image1, scale0, scale1, (name0,), (name1,) = data
@@ -255,23 +320,23 @@ def match_dense(
             # for consistency with pairs_from_*: refine kpts of image0
             if name0 in existing_refs:
                 # special case: flip to enable refinement in query image
-                pred = model({'image0': image1, 'image1': image0})
+                pred = model({"image0": image1, "image1": image0})
                 pred = {
                     **pred,
-                    'keypoints0': pred['keypoints1'],
-                    'keypoints1': pred['keypoints0'],
+                    "keypoints0": pred["keypoints1"],
+                    "keypoints1": pred["keypoints0"],
                 }
             else:
                 # usual case
-                pred = model({'image0': image0, 'image1': image1})
+                pred = model({"image0": image0, "image1": image1})
 
             # Rescale keypoints and move to cpu
-            kpts0, kpts1 = pred['keypoints0'], pred['keypoints1']
+            kpts0, kpts1 = pred["keypoints0"], pred["keypoints1"]
             kpts0 = scale_keypoints(kpts0 + 0.5, scale0) - 0.5
             kpts1 = scale_keypoints(kpts1 + 0.5, scale1) - 0.5
             kpts0 = kpts0.cpu().numpy()
             kpts1 = kpts1.cpu().numpy()
-            scores = pred['scores'].cpu().numpy()
+            scores = pred["scores"].cpu().numpy()
 
             # Write matches and matching scores in hloc format
             pair = names_to_pair(name0, name1)
@@ -280,35 +345,41 @@ def match_dense(
             grp = fd.create_group(pair)
 
             # Write dense matching output
-            grp.create_dataset('keypoints0', data=kpts0)
-            grp.create_dataset('keypoints1', data=kpts1)
-            grp.create_dataset('scores', data=scores)
+            grp.create_dataset("keypoints0", data=kpts0)
+            grp.create_dataset("keypoints1", data=kpts1)
+            grp.create_dataset("scores", data=scores)
 
     del model, loader
 
 
 # default: quantize all!
-def load_keypoints(conf: Dict[str, Any], feature_paths_refs: List[Path], quantize: Optional[Set[str]] = None):
-    name2ref = {n: i for i, p in enumerate(feature_paths_refs) for n in list_h5_names(p)}
+def load_keypoints(
+    conf: dict[str, Any],
+    feature_paths_refs: list[Path],
+    quantize: set[str] | None = None,
+):
+    name2ref = {
+        n: i for i, p in enumerate(feature_paths_refs) for n in list_h5_names(p)
+    }
 
     existing_refs = set(name2ref.keys())
     if quantize is None:
         quantize = existing_refs  # quantize all
 
     if len(existing_refs) > 0:
-        logger.info(f'Loading keypoints from {len(existing_refs)} images.')
+        logger.info(f"Loading keypoints from {len(existing_refs)} images.")
 
     # Load query keypoints
     cpdict = defaultdict(list)
     bindict = defaultdict(list)
     for name in existing_refs:
-        with h5py.File(str(feature_paths_refs[name2ref[name]]), mode='r') as fd:
-            kps = fd[name]['keypoints'].__array__()
+        with h5py.File(str(feature_paths_refs[name2ref[name]]), mode="r") as fd:
+            kps = fd[name]["keypoints"].__array__()
             if name not in quantize:
                 cpdict[name] = kps
             else:
-                if 'scores' in fd[name].keys():
-                    kp_scores = fd[name]['scores'].__array__()
+                if "scores" in fd[name].keys():
+                    kp_scores = fd[name]["scores"].__array__()
                 else:
                     # we set the score to 1.0 if not provided
                     # increase for more weight on reference keypoints for
@@ -319,25 +390,25 @@ def load_keypoints(conf: Dict[str, Any], feature_paths_refs: List[Path], quantiz
                 assign_keypoints(
                     kps,
                     cpdict[name],
-                    conf['max_error'],
+                    conf["max_error"],
                     True,
                     bindict[name],
                     kp_scores,
-                    conf['cell_size'],
+                    conf["cell_size"],
                 )
 
     return cpdict, bindict
 
 
 def aggregate_matches(
-    conf: Dict[str, Any],
-    pairs: List[Tuple[str, str]],
+    conf: dict[str, Any],
+    pairs: list[tuple[str, str]],
     match_path: Path,
     feature_path: Path,
-    required_queries: Optional[Set[str]] = None,
-    max_kps: Optional[int] = None,
-    cpdict: Dict[str, Iterable] = defaultdict(list),
-    bindict: Dict[str, List[Counter]] = defaultdict(list),
+    required_queries: set[str] | None = None,
+    max_kps: int | None = None,
+    cpdict: dict[str, Iterable] = defaultdict(list),
+    bindict: dict[str, list[Counter]] = defaultdict(list),
 ):
     if required_queries is None:
         required_queries = set(sum(pairs, ()))
@@ -353,17 +424,17 @@ def aggregate_matches(
     pairs = [p for _, p in sorted(zip(pairs_score, pairs))]
 
     if len(required_queries) > 0:
-        logger.info(f'Aggregating keypoints for {len(required_queries)} images.')
+        logger.info(f"Aggregating keypoints for {len(required_queries)} images.")
     n_kps = 0
-    with h5py.File(str(match_path), mode='a') as fd:
+    with h5py.File(str(match_path), mode="a") as fd:
         for name0, name1 in tqdm(pairs, smoothing=0.1):
             pair = names_to_pair(name0, name1)
             grp = fd[pair]
             assert isinstance(grp, h5py.Group)
 
-            kpts0 = np.asarray(grp['keypoints0'])
-            kpts1 = np.asarray(grp['keypoints1'])
-            scores = np.asarray(grp['scores'])
+            kpts0 = np.asarray(grp["keypoints0"])
+            kpts1 = np.asarray(grp["keypoints1"])
+            scores = np.asarray(grp["scores"])
 
             # Aggregate local features
             update0 = name0 in required_queries
@@ -374,8 +445,8 @@ def aggregate_matches(
             if update0 and not update1 and max_kps is None:
                 max_error0 = cell_size0 = 0.0
             else:
-                max_error0 = conf['max_error']
-                cell_size0 = conf['cell_size']
+                max_error0 = conf["max_error"]
+                cell_size0 = conf["cell_size"]
 
             # Get match ids and extend query keypoints (cpdict)
             mkp_ids0 = assign_keypoints(
@@ -390,19 +461,19 @@ def aggregate_matches(
             mkp_ids1 = assign_keypoints(
                 kpts1,
                 cpdict[name1],
-                conf['max_error'],
+                conf["max_error"],
                 update1,
                 bindict[name1],
                 scores,
-                conf['cell_size'],
+                conf["cell_size"],
             )
 
             # Build matches from assignments
             matches0, scores0 = kpids_to_matches0(mkp_ids0, mkp_ids1, scores)
 
             assert kpts0.shape[0] == scores.shape[0]
-            grp.create_dataset('matches0', data=matches0)
-            grp.create_dataset('matching_scores0', data=scores0)
+            grp.create_dataset("matches0", data=matches0)
+            grp.create_dataset("matching_scores0", data=scores0)
 
             # Convert bins to kps if finished, and store them
             for name in (name0, name1):
@@ -421,38 +492,40 @@ def aggregate_matches(
                     kp_score = np.array(kp_score)[top_k]
 
                 # Write query keypoints
-                with h5py.File(feature_path, 'a') as kfd:
+                with h5py.File(feature_path, "a") as kfd:
                     if name in kfd:
                         del kfd[name]
                     kgrp = kfd.create_group(name)
-                    kgrp.create_dataset('keypoints', data=cpdict[name])
-                    kgrp.create_dataset('score', data=kp_score)
+                    kgrp.create_dataset("keypoints", data=cpdict[name])
+                    kgrp.create_dataset("score", data=kp_score)
                     n_kps += cpdict[name].shape[0]
                 del bindict[name]
 
     if len(required_queries) > 0:
         avg_kp_per_image = round(n_kps / len(required_queries), 1)
-        logger.info(f'Finished assignment, found {avg_kp_per_image} keypoints/image (avg.), total {n_kps}.')
+        logger.info(
+            f"Finished assignment, found {avg_kp_per_image} keypoints/image (avg.), total {n_kps}."
+        )
     return cpdict
 
 
 def assign_matches(
-    pairs: List[Tuple[str, str]],
+    pairs: list[tuple[str, str]],
     match_path: Path,
-    keypoints: Dict[str, np.ndarray],
+    keypoints: dict[str, np.ndarray],
     max_error: float,
 ):
     assert len(set(sum(pairs, ())) - set(keypoints.keys())) == 0
 
-    with h5py.File(str(match_path), mode='a') as fd:
+    with h5py.File(str(match_path), mode="a") as fd:
         for name0, name1 in tqdm(pairs):
             pair = names_to_pair(name0, name1)
             grp = fd[pair]
             assert isinstance(grp, h5py.Group)
 
-            kpts0 = np.asarray(grp['keypoints0'])
-            kpts1 = np.asarray(grp['keypoints1'])
-            scores = np.asarray(grp['scores'])
+            kpts0 = np.asarray(grp["keypoints0"])
+            kpts1 = np.asarray(grp["keypoints1"])
+            scores = np.asarray(grp["scores"])
 
             # NN search across cell boundaries
             mkp_ids0 = assign_keypoints(kpts0, keypoints[name0], max_error)
@@ -461,31 +534,33 @@ def assign_matches(
             matches0, scores0 = kpids_to_matches0(mkp_ids0, mkp_ids1, scores)
 
             # overwrite matches0 and matching_scores0
-            del grp['matches0'], grp['matching_scores0']
-            grp.create_dataset('matches0', data=matches0)
-            grp.create_dataset('matching_scores0', data=scores0)
+            del grp["matches0"], grp["matching_scores0"]
+            grp.create_dataset("matches0", data=matches0)
+            grp.create_dataset("matching_scores0", data=scores0)
 
 
 @torch.inference_mode()
 def match_and_assign(
-    conf: Dict[str, Any],
+    conf: dict[str, Any],
     pairs_path: Path,
     image_dir: Path,
     match_path: Path,  # out
     feature_path_q: Path,  # out
-    feature_paths_refs: List[Path] = [],
-    max_kps: Optional[int] = 8192,
+    feature_paths_refs: list[Path] = [],
+    max_kps: int | None = 8192,
     overwrite: bool = False,
 ) -> None:
     for path in feature_paths_refs:
         if not path.exists():
-            raise FileNotFoundError(f'Reference feature file {path}.')
+            raise FileNotFoundError(f"Reference feature file {path}.")
 
     pairs = parse_pairs(pairs_path)
     pairs = find_unique_new_pairs(pairs, None if overwrite else match_path)
     required_queries = set(chain.from_iterable(pairs))
 
-    name2ref = {n: i for i, p in enumerate(feature_paths_refs) for n in list_h5_names(p)}
+    name2ref = {
+        n: i for i, p in enumerate(feature_paths_refs) for n in list_h5_names(p)
+    }
     existing_refs = required_queries.intersection(set(name2ref.keys()))
 
     # images which require feature extraction
@@ -499,16 +574,18 @@ def match_and_assign(
             required_queries = required_queries - existing_queries
 
     if len(pairs) == 0 and len(required_queries) == 0:
-        logger.info('All pairs exist. Skipping dense matching.')
+        logger.info("All pairs exist. Skipping dense matching.")
         return
 
     # extract semi-dense matches
     match_dense(conf, pairs, image_dir, match_path, existing_refs=existing_refs)
 
-    logger.info('Assigning matches...')
+    logger.info("Assigning matches...")
 
     # Pre-load existing keypoints
-    cpdict, bindict = load_keypoints(conf, feature_paths_refs, quantize=required_queries)
+    cpdict, bindict = load_keypoints(
+        conf, feature_paths_refs, quantize=required_queries
+    )
 
     # Reassign matches by aggregation
     cpdict = aggregate_matches(
@@ -524,31 +601,33 @@ def match_and_assign(
 
     # Invalidate matches that are far from selected bin by reassignment
     if max_kps is not None:
-        logger.info(f'Reassign matches with max_error={conf["max_error"]}.')
-        assign_matches(pairs, match_path, cpdict, max_error=conf['max_error'])
+        logger.info(f"Reassign matches with max_error={conf['max_error']}.")
+        assign_matches(pairs, match_path, cpdict, max_error=conf["max_error"])
 
 
 def main(
-    conf: Dict[str, Any],
+    conf: dict[str, Any],
     pairs: Path,
     image_dir: Path,
-    export_dir: Optional[Path] = None,
-    matches: Optional[Path] = None,  # out
-    features: Optional[Path] = None,  # out
-    features_ref: Optional[Union[Path, List[Path]]] = None,
-    max_kps: Optional[int] = 8192,
+    export_dir: Path | None = None,
+    matches: Path | None = None,  # out
+    features: Path | None = None,  # out
+    features_ref: Path | list[Path] | None = None,
+    max_kps: int | None = 8192,
     overwrite: bool = False,
-) -> Tuple[Path, Path]:
-    logger.info(f'Extracting semi-dense features with configuration:\n{pprint.pformat(conf)}')
+) -> tuple[Path, Path]:
+    logger.info(
+        f"Extracting semi-dense features with configuration:\n{pprint.pformat(conf)}"
+    )
 
     if features is None:
-        features = Path('feats_')
+        features = Path("feats_")
 
     if isinstance(features, Path):
-        features_q = Path(f'{features}{conf["output"]}.h5')
+        features_q = Path(f"{features}{conf['output']}.h5")
 
     if matches is None:
-        matches = Path(f'{conf["output"]}.h5')
+        matches = Path(f"{conf['output']}.h5")
 
     if export_dir is not None:
         features_q = export_dir / features_q
@@ -563,26 +642,29 @@ def main(
     else:
         raise TypeError(str(features_ref))
 
-    match_and_assign(conf, pairs, image_dir, matches, features_q, features_ref, max_kps, overwrite)
+    match_and_assign(
+        conf, pairs, image_dir, matches, features_q, features_ref, max_kps, overwrite
+    )
 
     return features_q, matches
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--pairs', type=Path, required=True)
-    parser.add_argument('--image_dir', type=Path, required=True)
-    parser.add_argument('--export_dir', type=Path, required=True)
-    parser.add_argument('--matches', type=Path, default=None)
-    parser.add_argument('--features', type=Path, default=None)
-    parser.add_argument('--conf', type=str, default='loftr', choices=list(confs.keys()))
-    parser.add_argument('--resize_max', type=int, default=0)
-    parser.add_argument('--max_kps', type=int, default=8192)
+    parser.add_argument("--pairs", type=Path, required=True)
+    parser.add_argument("--image_dir", type=Path, required=True)
+    parser.add_argument("--export_dir", type=Path, required=True)
+    parser.add_argument("--matches", type=Path, default=None)
+    parser.add_argument("--features", type=Path, default=None)
+    parser.add_argument("--conf", type=str, default="loftr", choices=list(confs.keys()))
+    parser.add_argument("--resize_max", type=int, default=0)
+    parser.add_argument("--max_kps", type=int, default=8192)
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
     conf = confs[args.conf]
     if args.resize_max > 0:
-        conf['preprocessing']['resize_max'] = args.resize_max
+        conf["preprocessing"]["resize_max"] = args.resize_max
 
     main(
         conf=confs[args.conf],
@@ -592,4 +674,5 @@ if __name__ == '__main__':
         matches=args.matches,
         features=args.features,
         max_kps=args.max_kps,
+        overwrite=args.overwrite,
     )
