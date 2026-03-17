@@ -14,6 +14,7 @@ from .triangulation import (
     import_features,
     parse_option_args,
     estimation_and_geometric_verification,
+    estimation_and_geometric_verification_poselib,
 )
 
 
@@ -189,7 +190,21 @@ def main(
         )
 
     if not skip_geometric_verification:
-        estimation_and_geometric_verification(database, pairs, verbose)
+        # estimation_and_geometric_verification(database, pairs, verbose)
+        estimation_and_geometric_verification_poselib(
+            database,
+            pairs,
+            features,
+            matches,
+            verbose=verbose,
+            method="relative_pose",
+            ransac_options={
+                "max_epipolar_error": 1.0,
+                "progressive_sampling": True,
+                "max_iterations": 20000,
+            },
+            bundle_options={},
+        )
 
     if skip_reconstruction:
         logger.info("Skipping reconstruction as requested.")

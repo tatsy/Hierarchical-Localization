@@ -3,6 +3,7 @@ from typing import Any
 from pathlib import Path
 
 import numpy as np
+import poselib
 import pycolmap
 from tqdm import tqdm
 
@@ -53,10 +54,8 @@ def import_features(
 ):
     logger.info("Importing features into the database...")
     for image_name, image_id in tqdm(image_ids.items(), desc="Importing features"):
-        # descriptors = get_descriptors(features_path, image_name)
         keypoints = get_keypoints(features_path, image_name)
-        # keypoints += 0.5  # COLMAP origin
-        # db.write_descriptors(image_id, descriptors)
+        keypoints += 0.5  # COLMAP origin
         db.write_keypoints(image_id, keypoints)
 
 
@@ -73,7 +72,7 @@ def import_matches(
     pairs = parse_pairs(pairs_path)
 
     matched: set[tuple[int, int]] = set()
-    for name0, name1 in tqdm(pairs):
+    for name0, name1 in tqdm(pairs, desc="Importing matches"):
         id0, id1 = image_ids[name0], image_ids[name1]
         if len({(id0, id1), (id1, id0)} & matched) > 0:
             continue
@@ -89,6 +88,124 @@ def import_matches(
             )
 
 
+def _camera_model_name(camera) -> str:
+    # pycolmap の版差を少し吸収
+    if hasattr(camera, "model_name"):
+        name = camera.model_name
+        return name() if callable(name) else str(name)
+    if hasattr(camera, "model"):
+        return str(camera.model).split(".")[-1]
+    raise AttributeError("Could not infer camera model name from pycolmap camera.")
+
+
+def _camera_to_poselib(camera) -> dict:
+    return {
+        "model": _camera_model_name(camera),
+        "width": int(camera.width),
+        "height": int(camera.height),
+        "params": [float(x) for x in camera.params],
+    }
+
+
+def estimation_and_geometric_verification_poselib(
+    database_path: Path,
+    pairs_path: Path,
+    features_path: Path,
+    matches_path: Path,
+    verbose: bool = False,
+    method: str = "relative_pose",  # "relative_pose", "fundamental", "shared_focal"
+    ransac_options: dict | None = None,
+    bundle_options: dict | None = None,
+):
+    logger.info("Performing geometric verification with PoseLib...")
+
+    if ransac_options is None:
+        ransac_options = {
+            "max_epipolar_error": 1.0,
+            "progressive_sampling": True,
+            "max_iterations": 20000,
+            "min_iterations": 1000,
+        }
+    if bundle_options is None:
+        bundle_options = {}
+
+    pairs = parse_retrieval(pairs_path)
+
+    with pycolmap.Database.open(database_path) as db:
+        # reconstruction.py でも read_all_images() は使われています
+        images = {img.name: img for img in db.read_all_images()}
+        cameras = {cam.camera_id: cam for cam in db.read_all_cameras()}
+
+        matched = set()
+        inlier_ratios = []
+
+        for name0 in tqdm(pairs, disable=not verbose):
+            id0 = images[name0].image_id
+
+            # hloc -> COLMAP と座標系を合わせるため +0.5
+            kps0 = get_keypoints(features_path, name0).astype(np.float64) + 0.5
+
+            for name1 in pairs[name0]:
+                id1 = images[name1].image_id
+
+                if len({(id0, id1), (id1, id0)} & matched) > 0:
+                    continue
+                matched |= {(id0, id1), (id1, id0)}
+
+                kps1 = get_keypoints(features_path, name1).astype(np.float64) + 0.5
+                matches, scores = get_matches(matches_path, name0, name1)
+
+                if matches.shape[0] == 0:
+                    db.write_two_view_geometry(id0, id1, pycolmap.TwoViewGeometry())
+                    continue
+
+                pts0 = kps0[matches[:, 0]]
+                pts1 = kps1[matches[:, 1]]
+
+                try:
+                    if method == "relative_pose":
+                        cam0 = _camera_to_poselib(cameras[images[name0].camera_id])
+                        cam1 = _camera_to_poselib(cameras[images[name1].camera_id])
+                        model, info = poselib.estimate_relative_pose(
+                            pts0, pts1, cam0, cam1, ransac_options, bundle_options
+                        )
+                    elif method == "shared_focal":
+                        # 共有主点を画像中心で仮定
+                        cam0 = cameras[images[name0].camera_id]
+                        pp = [0.5 * cam0.width, 0.5 * cam0.height]
+                        model, info = poselib.estimate_shared_focal_relative_pose(
+                            pts0, pts1, pp, ransac_options, bundle_options
+                        )
+                    elif method == "fundamental":
+                        model, info = poselib.estimate_fundamental(
+                            pts0, pts1, ransac_options, bundle_options
+                        )
+                    else:
+                        raise ValueError(f"Unknown method: {method}")
+                except Exception:
+                    db.write_two_view_geometry(id0, id1, pycolmap.TwoViewGeometry())
+                    continue
+
+                inliers = np.asarray(info["inliers"]).astype(bool).reshape(-1)
+                inlier_matches = matches[inliers]
+
+                db.write_two_view_geometry(
+                    id0, id1, pycolmap.TwoViewGeometry(inlier_matches=inlier_matches)
+                )
+
+                if len(matches) > 0:
+                    inlier_ratios.append(len(inlier_matches) / len(matches))
+
+        if len(inlier_ratios) > 0:
+            logger.info(
+                "PoseLib GV inlier ratio mean/med/min/max: %.2f / %.2f / %.2f / %.2f %%",
+                100.0 * np.mean(inlier_ratios),
+                100.0 * np.median(inlier_ratios),
+                100.0 * np.min(inlier_ratios),
+                100.0 * np.max(inlier_ratios),
+            )
+
+
 def estimation_and_geometric_verification(
     database_path: Path, pairs_path: Path, verbose: bool = False
 ):
@@ -97,8 +214,8 @@ def estimation_and_geometric_verification(
         {
             "ransac": pycolmap.RANSACOptions(
                 {
-                    "max_num_trials": 100000,
-                    "confidence": 0.9999,
+                    "max_num_trials": 50000,
+                    "confidence": 0.999,
                     "min_inlier_ratio": 0.1,
                 }
             )

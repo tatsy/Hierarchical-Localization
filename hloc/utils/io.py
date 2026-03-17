@@ -1,5 +1,5 @@
-from typing import List, Mapping
 from pathlib import Path
+from collections.abc import Mapping
 
 import cv2
 import h5py
@@ -18,7 +18,7 @@ def read_image(path: Path, grayscale: bool = False) -> np.ndarray:
 
     image = cv2.imread(str(path), mode | cv2.IMREAD_IGNORE_ORIENTATION)
     if image is None:
-        raise ValueError(f'Cannot read image {path}.')
+        raise ValueError(f"Cannot read image {path}.")
 
     if not grayscale and len(image.shape) == 3:
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -26,13 +26,13 @@ def read_image(path: Path, grayscale: bool = False) -> np.ndarray:
     return image
 
 
-def list_h5_names(path: Path) -> List[str]:
+def list_h5_names(path: Path) -> list[str]:
     names = []
-    with h5py.File(str(path), 'r', libver='latest') as fd:
+    with h5py.File(str(path), "r", libver="latest") as fd:
 
         def visit_fn(_, obj):
             if isinstance(obj, h5py.Dataset):
-                names.append(obj.parent.name.strip('/'))
+                names.append(obj.parent.name.strip("/"))
 
         fd.visititems(visit_fn)
 
@@ -40,18 +40,20 @@ def list_h5_names(path: Path) -> List[str]:
 
 
 def get_descriptors(path: Path, name: str) -> npt.NDArray[np.floating]:
-    with h5py.File(str(path), mode='r', libver='latest') as h5:
-        dset = h5[name]['descriptors']
+    with h5py.File(str(path), mode="r", libver="latest") as h5:
+        dset = h5[name]["descriptors"]
         descriptors = np.array(dset)
 
     return np.transpose(descriptors, axes=(1, 0))
 
 
-def get_keypoints(path: Path, name: str, return_uncertainty: bool = False) -> npt.NDArray[np.float64]:
-    with h5py.File(str(path), mode='r', libver='latest') as h5:
-        dset = h5[name]['keypoints']
+def get_keypoints(
+    path: Path, name: str, return_uncertainty: bool = False
+) -> npt.NDArray[np.float64]:
+    with h5py.File(str(path), mode="r", libver="latest") as h5:
+        dset = h5[name]["keypoints"]
         kp = np.array(dset, dtype=np.float64)
-        uncertainty = dset.attrs.get('uncertainty')
+        uncertainty = dset.attrs.get("uncertainty")
 
     if return_uncertainty:
         return kp, uncertainty
@@ -77,21 +79,26 @@ def find_pair(hfile: h5py.File, name0: str, name1: str):
     if pair in hfile:
         return pair, True
 
-    raise ValueError(f'Could not find pair {(name0, name1)}... Maybe you matched with a different list of pairs? ')
+    raise ValueError(
+        f"Could not find pair {(name0, name1)}..."
+        "Maybe you matched with a different list of pairs? "
+    )
 
 
-def get_matches(file: str | Path | h5py.File, name0: str, name1: str) -> tuple[np.ndarray, np.ndarray]:
+def get_matches(
+    file: str | Path | h5py.File, name0: str, name1: str
+) -> tuple[np.ndarray, np.ndarray]:
     if isinstance(file, h5py.File):
         h5 = file
         close = False
 
     else:
-        h5 = h5py.File(str(file), mode='r', libver='latest')
+        h5 = h5py.File(str(file), mode="r", libver="latest")
         close = True
 
     pair, reverse = find_pair(h5, name0, name1)
-    matches = h5[pair]['matches0'].__array__()
-    scores = h5[pair]['matching_scores0'].__array__()
+    matches = h5[pair]["matches0"].__array__()
+    scores = h5[pair]["matching_scores0"].__array__()
 
     idx = np.where(matches != -1)[0]
     matches = np.stack([idx, matches[idx]], axis=-1)
@@ -106,12 +113,14 @@ def get_matches(file: str | Path | h5py.File, name0: str, name1: str) -> tuple[n
     return matches, scores
 
 
-def write_poses(poses: Mapping[str, pycolmap.Rigid3d], path: str, prepend_camera_name: bool):
-    with open(path, 'w') as f:
+def write_poses(
+    poses: Mapping[str, pycolmap.Rigid3d], path: str, prepend_camera_name: bool
+):
+    with open(path, mode="w") as f:
         for query, t in poses.items():
-            qvec = ' '.join(map(str, t.rotation.quat[[3, 0, 1, 2]]))
-            tvec = ' '.join(map(str, t.translation))
-            name = query.split('/')[-1]
+            qvec = " ".join(map(str, t.rotation.quat[[3, 0, 1, 2]]))
+            tvec = " ".join(map(str, t.translation))
+            name = query.split("/")[-1]
             if prepend_camera_name:
-                name = query.split('/')[-2] + '/' + name
-            f.write(f'{name} {qvec} {tvec}\n')
+                name = query.split("/")[-2] + "/" + name
+            f.write(f"{name} {qvec} {tvec}\n")
