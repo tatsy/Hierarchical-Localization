@@ -149,6 +149,7 @@ def _estimate_one_pair(
     method: Any,
     ransac_options: dict[str, Any],
     bundle_options: dict[str, Any],
+    min_inlier_ratio: float = 0.0,
 ):
     kps0 = get_keypoints(features_path, name0).astype(np.float64)
     kps0 += 0.5
@@ -210,6 +211,10 @@ def _estimate_one_pair(
         inlier_matches = matches[inliers]
         inlier_ratio = float(len(inlier_matches)) / float(len(matches))
 
+        if inlier_ratio < min_inlier_ratio:
+            inlier_ratio = None
+            inlier_matches = np.empty((0, 2), dtype=np.int32)
+
         tvg.inlier_matches = inlier_matches
 
         return TVGResult(
@@ -220,12 +225,14 @@ def _estimate_one_pair(
         )
 
     except Exception:
-        return TVGResult(
-            id0=id0,
-            id1=id1,
-            inlier_ratio=None,
-            tvg=None,
-        )
+        pass
+
+    return TVGResult(
+        id0=id0,
+        id1=id1,
+        inlier_ratio=None,
+        tvg=None,
+    )
 
 
 def estimation_and_geometric_verification_poselib(
@@ -234,15 +241,15 @@ def estimation_and_geometric_verification_poselib(
     features_path: Path,
     matches_path: Path,
     verbose: bool = False,
-    method: PoselibMethod = PoselibMethod.FUNDAMENTAL,
+    method: PoselibMethod = PoselibMethod.RELATIVE_POSE,
     ransac_options: dict[str, Any] | None = None,
     bundle_options: dict[str, Any] | None = None,
 ):
-    logger.info("Performing geometric verification with PoseLib...")
+    logger.info("Performing geometric verification (poselib)")
 
     if ransac_options is None:
         ransac_options = {
-            "max_epipolar_error": 1.0,
+            "max_epipolar_error": 4.0,
             "max_iterations": 20000,
         }
     if bundle_options is None:
@@ -278,6 +285,7 @@ def estimation_and_geometric_verification_poselib(
             method,
             ransac_options,
             bundle_options,
+            min_inlier_ratio=0.1,
         )
         for (id0, id1), (name0, name1) in tqdm(
             tasks.items(), desc="Estimating two-view geometries with PoseLib"

@@ -191,20 +191,20 @@ def main(
         )
 
     if not skip_geometric_verification:
-        # estimation_and_geometric_verification(database, pairs, verbose)
-        estimation_and_geometric_verification_poselib(
-            database,
-            pairs,
-            features,
-            matches,
-            verbose=verbose,
-            method=PoselibMethod.RELATIVE_POSE,
-            ransac_options={
-                "max_epipolar_error": 1.0,
-                "max_iterations": 20000,
-            },
-            bundle_options={},
-        )
+        estimation_and_geometric_verification(database, pairs, verbose)
+        # estimation_and_geometric_verification_poselib(
+        #     database,
+        #     pairs,
+        #     features,
+        #     matches,
+        #     verbose=verbose,
+        #     method=PoselibMethod.RELATIVE_POSE,
+        #     ransac_options={
+        #         "max_epipolar_error": 1.0,
+        #         "max_iterations": 20000,
+        #     },
+        #     bundle_options={},
+        # )
 
     if skip_reconstruction:
         logger.info("Skipping reconstruction as requested.")
