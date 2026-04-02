@@ -10,6 +10,7 @@ import pycolmap
 from . import logger
 from .triangulation import (
     OutputCapture,
+    PoselibMethod,
     import_matches,
     import_features,
     parse_option_args,
@@ -197,10 +198,9 @@ def main(
             features,
             matches,
             verbose=verbose,
-            method="relative_pose",
+            method=PoselibMethod.RELATIVE_POSE,
             ransac_options={
                 "max_epipolar_error": 1.0,
-                "progressive_sampling": True,
                 "max_iterations": 20000,
             },
             bundle_options={},

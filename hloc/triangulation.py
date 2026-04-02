@@ -1,4 +1,5 @@
 import argparse
+from enum import StrEnum
 from typing import Any
 from pathlib import Path
 
@@ -6,11 +7,18 @@ import numpy as np
 import poselib
 import pycolmap
 from tqdm import tqdm
+from joblib import Parallel, delayed
 
 from . import logger
 from .utils.io import get_matches, get_keypoints
 from .utils.parsers import parse_pairs, parse_retrieval
 from .utils.geometry import compute_epipolar_errors
+
+
+class PoselibMethod(StrEnum):
+    RELATIVE_POSE = "relative_pose"
+    SHARED_FOCAL = "shared_focal"
+    FUNDAMENTAL = "fundamental"
 
 
 class OutputCapture:
@@ -52,7 +60,7 @@ def import_features(
     db: pycolmap.Database,
     features_path: Path,
 ):
-    logger.info("Importing features into the database...")
+    logger.info(f"Import features from {features_path}")
     for image_name, image_id in tqdm(image_ids.items(), desc="Importing features"):
         keypoints = get_keypoints(features_path, image_name)
         keypoints += 0.5  # COLMAP origin
@@ -67,8 +75,7 @@ def import_matches(
     min_match_score: float = 0.0,
     skip_geometric_verification: bool = False,
 ):
-    logger.info("Importing matches into the database...")
-
+    logger.info(f"Import matches from {matches_path}")
     pairs = parse_pairs(pairs_path)
 
     matched: set[tuple[int, int]] = set()
@@ -76,9 +83,11 @@ def import_matches(
         id0, id1 = image_ids[name0], image_ids[name1]
         if len({(id0, id1), (id1, id0)} & matched) > 0:
             continue
+
         matches, scores = get_matches(matches_path, name0, name1)
         if min_match_score:
             matches = matches[scores > min_match_score]
+
         db.write_matches(id0, id1, matches)
         matched |= {(id0, id1), (id1, id0)}
 
@@ -89,16 +98,17 @@ def import_matches(
 
 
 def _camera_model_name(camera) -> str:
-    # pycolmap の版差を少し吸収
     if hasattr(camera, "model_name"):
         name = camera.model_name
         return name() if callable(name) else str(name)
+
     if hasattr(camera, "model"):
         return str(camera.model).split(".")[-1]
+
     raise AttributeError("Could not infer camera model name from pycolmap camera.")
 
 
-def _camera_to_poselib(camera) -> dict:
+def _camera_to_poselib(camera) -> dict[str, Any]:
     return {
         "model": _camera_model_name(camera),
         "width": int(camera.width),
@@ -107,103 +117,195 @@ def _camera_to_poselib(camera) -> dict:
     }
 
 
+class TVGResult:
+    def __init__(
+        self,
+        id0: int,
+        id1: int,
+        inlier_ratio: float | None,
+        tvg: pycolmap.TwoViewGeometry | None = None,
+    ):
+        self.id0 = id0
+        self.id1 = id1
+        self.inlier_ratio = inlier_ratio
+
+        if tvg is not None:
+            self.tvg = tvg
+        else:
+            tvg = pycolmap.TwoViewGeometry()
+            tvg.inlier_matches = np.empty((0, 2), dtype=np.int32)
+            self.tvg = tvg
+
+
+def _estimate_one_pair(
+    name0: str,
+    name1: str,
+    id0: int,
+    id1: int,
+    images: dict[str, Any],
+    cameras: dict[int, Any],
+    features_path: Path,
+    matches_path: Path,
+    method: Any,
+    ransac_options: dict[str, Any],
+    bundle_options: dict[str, Any],
+):
+    kps0 = get_keypoints(features_path, name0).astype(np.float64)
+    kps0 += 0.5
+    kps1 = get_keypoints(features_path, name1).astype(np.float64)
+    kps1 += 0.5
+
+    matches, _ = get_matches(matches_path, name0, name1)
+
+    if matches.shape[0] == 0:
+        return TVGResult(
+            id0=id0,
+            id1=id1,
+            inlier_ratio=None,
+            tvg=None,
+        )
+
+    pts0 = kps0[matches[:, 0]]
+    pts1 = kps1[matches[:, 1]]
+
+    tvg = pycolmap.TwoViewGeometry()
+    try:
+        if method == PoselibMethod.RELATIVE_POSE:
+            cam0 = _camera_to_poselib(cameras[images[name0].camera_id])
+            cam1 = _camera_to_poselib(cameras[images[name1].camera_id])
+            pose, info = poselib.estimate_relative_pose(
+                pts0, pts1, cam0, cam1, ransac_options, bundle_options
+            )
+
+            cam2_from_cam1 = pycolmap.Rigid3d(rotation=pose.R, translation=pose.t)
+
+            tvg.config = pycolmap.TwoViewGeometryConfiguration.CALIBRATED
+            tvg.cam2_from_cam1 = cam2_from_cam1
+            tvg.E = pycolmap.essential_matrix_from_pose(cam2_from_cam1)
+
+        elif method == PoselibMethod.SHARED_FOCAL:
+            cam0 = cameras[images[name0].camera_id]
+            cam1 = cameras[images[name1].camera_id]
+            assert isinstance(cam0, pycolmap.Camera)
+            assert isinstance(cam1, pycolmap.Camera)
+            assert cam0.width == cam1.width and cam0.height == cam1.height
+
+            pp = [0.5 * cam0.width, 0.5 * cam0.height]
+            _, info = poselib.estimate_shared_focal_relative_pose(
+                pts0, pts1, pp, ransac_options, bundle_options
+            )
+
+        elif method == PoselibMethod.FUNDAMENTAL:
+            F, info = poselib.estimate_fundamental(
+                pts0, pts1, ransac_options, bundle_options
+            )
+
+            tvg.config = pycolmap.TwoViewGeometryConfiguration.UNCALIBRATED
+            tvg.F = F
+
+        else:
+            raise ValueError(f"Unknown method: {method}")
+
+        inliers = np.asarray(info["inliers"], dtype=bool).reshape(-1)
+        inlier_matches = matches[inliers]
+        inlier_ratio = float(len(inlier_matches)) / float(len(matches))
+
+        tvg.inlier_matches = inlier_matches
+
+        return TVGResult(
+            id0=id0,
+            id1=id1,
+            inlier_ratio=inlier_ratio,
+            tvg=tvg,
+        )
+
+    except Exception:
+        return TVGResult(
+            id0=id0,
+            id1=id1,
+            inlier_ratio=None,
+            tvg=None,
+        )
+
+
 def estimation_and_geometric_verification_poselib(
     database_path: Path,
     pairs_path: Path,
     features_path: Path,
     matches_path: Path,
     verbose: bool = False,
-    method: str = "relative_pose",  # "relative_pose", "fundamental", "shared_focal"
-    ransac_options: dict | None = None,
-    bundle_options: dict | None = None,
+    method: PoselibMethod = PoselibMethod.FUNDAMENTAL,
+    ransac_options: dict[str, Any] | None = None,
+    bundle_options: dict[str, Any] | None = None,
 ):
     logger.info("Performing geometric verification with PoseLib...")
 
     if ransac_options is None:
         ransac_options = {
             "max_epipolar_error": 1.0,
-            "progressive_sampling": True,
             "max_iterations": 20000,
-            "min_iterations": 1000,
         }
     if bundle_options is None:
         bundle_options = {}
 
     pairs = parse_retrieval(pairs_path)
 
-    with pycolmap.Database.open(database_path) as db:
-        # reconstruction.py でも read_all_images() は使われています
+    with pycolmap.Database.open(str(database_path)) as db:
         images = {img.name: img for img in db.read_all_images()}
         cameras = {cam.camera_id: cam for cam in db.read_all_cameras()}
 
-        matched = set()
-        inlier_ratios = []
-
-        for name0 in tqdm(pairs, disable=not verbose):
+    # Unique pairs
+    tasks = {}
+    for name0 in pairs:
+        for name1 in pairs[name0]:
             id0 = images[name0].image_id
+            id1 = images[name1].image_id
 
-            # hloc -> COLMAP と座標系を合わせるため +0.5
-            kps0 = get_keypoints(features_path, name0).astype(np.float64) + 0.5
+            key = (min(id0, id1), max(id0, id1))
+            if key not in tasks:
+                tasks[key] = (name0, name1)
 
-            for name1 in pairs[name0]:
-                id1 = images[name1].image_id
+    results = Parallel(n_jobs=-1, backend="threading", verbose=0)(
+        delayed(_estimate_one_pair)(
+            name0,
+            name1,
+            id0,
+            id1,
+            images,
+            cameras,
+            features_path,
+            matches_path,
+            method,
+            ransac_options,
+            bundle_options,
+        )
+        for (id0, id1), (name0, name1) in tqdm(
+            tasks.items(), desc="Estimating two-view geometries with PoseLib"
+        )
+    )
 
-                if len({(id0, id1), (id1, id0)} & matched) > 0:
-                    continue
-                matched |= {(id0, id1), (id1, id0)}
+    inlier_ratios = []
+    with pycolmap.Database.open(str(database_path)) as db:
+        for res in results:
+            assert isinstance(res, TVGResult)
 
-                kps1 = get_keypoints(features_path, name1).astype(np.float64) + 0.5
-                matches, scores = get_matches(matches_path, name0, name1)
-
-                if matches.shape[0] == 0:
-                    db.write_two_view_geometry(id0, id1, pycolmap.TwoViewGeometry())
-                    continue
-
-                pts0 = kps0[matches[:, 0]]
-                pts1 = kps1[matches[:, 1]]
-
-                try:
-                    if method == "relative_pose":
-                        cam0 = _camera_to_poselib(cameras[images[name0].camera_id])
-                        cam1 = _camera_to_poselib(cameras[images[name1].camera_id])
-                        model, info = poselib.estimate_relative_pose(
-                            pts0, pts1, cam0, cam1, ransac_options, bundle_options
-                        )
-                    elif method == "shared_focal":
-                        # 共有主点を画像中心で仮定
-                        cam0 = cameras[images[name0].camera_id]
-                        pp = [0.5 * cam0.width, 0.5 * cam0.height]
-                        model, info = poselib.estimate_shared_focal_relative_pose(
-                            pts0, pts1, pp, ransac_options, bundle_options
-                        )
-                    elif method == "fundamental":
-                        model, info = poselib.estimate_fundamental(
-                            pts0, pts1, ransac_options, bundle_options
-                        )
-                    else:
-                        raise ValueError(f"Unknown method: {method}")
-                except Exception:
-                    db.write_two_view_geometry(id0, id1, pycolmap.TwoViewGeometry())
-                    continue
-
-                inliers = np.asarray(info["inliers"]).astype(bool).reshape(-1)
-                inlier_matches = matches[inliers]
-
-                db.write_two_view_geometry(
-                    id0, id1, pycolmap.TwoViewGeometry(inlier_matches=inlier_matches)
-                )
-
-                if len(matches) > 0:
-                    inlier_ratios.append(len(inlier_matches) / len(matches))
-
-        if len(inlier_ratios) > 0:
-            logger.info(
-                "PoseLib GV inlier ratio mean/med/min/max: %.2f / %.2f / %.2f / %.2f %%",
-                100.0 * np.mean(inlier_ratios),
-                100.0 * np.median(inlier_ratios),
-                100.0 * np.min(inlier_ratios),
-                100.0 * np.max(inlier_ratios),
+            db.write_two_view_geometry(
+                res.id0,
+                res.id1,
+                res.tvg,
             )
+            if res.inlier_ratio is not None:
+                inlier_ratios.append(res.inlier_ratio)
+
+    if len(inlier_ratios) > 0:
+        v_avg = 100.0 * float(np.mean(inlier_ratios))
+        v_med = 100.0 * float(np.median(inlier_ratios))
+        v_min = 100.0 * float(np.min(inlier_ratios))
+        v_max = 100.0 * float(np.max(inlier_ratios))
+        logger.info(
+            "Poselib inlier ratio mean/med/min/max: "
+            f"{v_avg:.2f} / {v_med:.2f} / {v_min:.2f} / {v_max:.2f} %",
+        )
 
 
 def estimation_and_geometric_verification(
@@ -214,8 +316,7 @@ def estimation_and_geometric_verification(
         {
             "ransac": pycolmap.RANSACOptions(
                 {
-                    "max_num_trials": 50000,
-                    "confidence": 0.999,
+                    "max_num_trials": 20000,
                     "min_inlier_ratio": 0.1,
                 }
             )
@@ -295,6 +396,7 @@ def geometric_verification(
                 errors0 <= cam0.cam_from_img_threshold(noise0 * max_error),
                 errors1 <= cam1.cam_from_img_threshold(noise1 * max_error),
             )
+
             # TODO: We could also add E to the database, but we need
             # to reverse the transformations if id0 > id1 in utils/database.py.
             two_view_geo = pycolmap.TwoViewGeometry()
@@ -302,12 +404,13 @@ def geometric_verification(
             db.write_two_view_geometry(id0, id1, two_view_geo)
             inlier_ratios.append(np.mean(valid_matches))
 
+    v_avg = 100.0 * float(np.mean(inlier_ratios))
+    v_med = 100.0 * float(np.median(inlier_ratios))
+    v_min = 100.0 * float(np.min(inlier_ratios))
+    v_max = 100.0 * float(np.max(inlier_ratios))
     logger.info(
-        "mean/med/min/max valid matches %.2f/%.2f/%.2f/%.2f%%.",
-        np.mean(inlier_ratios) * 100,
-        np.median(inlier_ratios) * 100,
-        np.min(inlier_ratios) * 100,
-        np.max(inlier_ratios) * 100,
+        "Inlier ratio mean/med/min/max: "
+        f"{v_avg:.2f}/{v_med:.2f}/{v_min:.2f}/{v_max:.2f} %.",
     )
 
 
@@ -323,10 +426,12 @@ def run_triangulation(
     logger.info("Running 3D triangulation...")
     if options is None:
         options = {}
+
     with OutputCapture(verbose):
         reconstruction = pycolmap.triangulate_points(
             reference_model, database_path, image_dir, model_path, options=options
         )
+
     return reconstruction
 
 
@@ -350,7 +455,7 @@ def main(
 
     sfm_dir.mkdir(parents=True, exist_ok=True)
     database = sfm_dir / "database.db"
-    reference = pycolmap.Reconstruction(reference_model)
+    reference = pycolmap.Reconstruction(str(reference_model))
 
     image_ids = create_db_from_model(reference, database)
     with pycolmap.Database.open(str(database)) as db:
@@ -386,18 +491,22 @@ def parse_option_args(args: list[str], default_options) -> dict[str, Any]:
         idx = arg.find("=")
         if idx == -1:
             raise ValueError("Options format: key1=value1 key2=value2 etc.")
+
         key, value = arg[:idx], arg[idx + 1 :]
         if not hasattr(default_options, key):
             raise ValueError(
                 f'Unknown option "{key}", allowed options and default values for {default_options.summary()}'
             )
+
         value = eval(value)
         target_type = type(getattr(default_options, key))
         if not isinstance(value, target_type):
             raise ValueError(
                 f'Incorrect type for option "{key}": {type(value)} vs {target_type}'
             )
+
         options[key] = value
+
     return options
 
 

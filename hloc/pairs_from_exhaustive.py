@@ -49,8 +49,8 @@ def main(
             pairs.append((n1, n2))
 
     logger.info(f"Found {len(pairs)} pairs.")
-    with open(output, mode="w", encoding="utf-8") as fp:
-        json.dump(pairs, fp, indent=2)
+    with open(output, mode="w", encoding="utf-8") as f:
+        f.write("\n".join(" ".join([i, j]) for i, j in pairs))
 
 
 if __name__ == "__main__":

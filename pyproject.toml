@@ -22,16 +22,22 @@ dependencies = [
   "plotly>=6.5.2",
   "h5py>=3.14.0",
   "gdown>=5.2.1",
-  "pycolmap>=3.13.0",
   "torch>=1.4.0",
   "torchvision>=0.6.0",
+  "pycolmap (>=3.13.0,<4.0.0)",
   "lightglue",
+  "safetensors>=0.7.0",
 ]
 
 [dependency-groups]
 dev = [
   "mypy>=1.19.1",
   "ruff>=0.15.5",
+]
+
+[tool.uv]
+conflicts = [
+  [{ extra = "cpu" }, { extra = "cuda" }],
 ]
 
 [tool.uv.sources]

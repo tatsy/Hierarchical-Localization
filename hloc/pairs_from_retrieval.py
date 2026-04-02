@@ -40,8 +40,9 @@ def get_descriptors(names, path, name2idx=None, key="global_descriptor"):
     else:
         desc = []
         for n in names:
-            with h5py.File(str(path[name2idx[n]]), "r", libver="latest") as fd:
+            with h5py.File(str(path[name2idx[n]]), mode="r", libver="latest") as fd:
                 desc.append(fd[n][key].__array__())
+
     return torch.from_numpy(np.stack(desc, 0)).float()
 
 
@@ -86,8 +87,10 @@ def main(
     # We only assume that names are unique among them and map names to files.
     if db_descriptors is None:
         db_descriptors = descriptors
+
     if isinstance(db_descriptors, (Path, str)):
         db_descriptors = [db_descriptors]
+
     name2db = {n: i for i, p in enumerate(db_descriptors) for n in list_h5_names(p)}
     db_names_h5 = list(name2db.keys())
     query_names_h5 = list_h5_names(descriptors)
@@ -97,8 +100,10 @@ def main(
         db_names = [i.name for i in images.values()]
     else:
         db_names = parse_names(db_prefix, db_list, db_names_h5)
+
     if len(db_names) == 0:
         raise ValueError("Could not find any database image.")
+
     query_names = parse_names(query_prefix, query_list, query_names_h5)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -112,7 +117,7 @@ def main(
     pairs = [(query_names[i], db_names[j]) for i, j in pairs]
 
     logger.info(f"Found {len(pairs)} pairs.")
-    with open(output, "w") as f:
+    with open(output, mode="w", encoding="utf-8") as f:
         f.write("\n".join(" ".join([i, j]) for i, j in pairs))
 
 
