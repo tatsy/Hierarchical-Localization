@@ -324,8 +324,8 @@ def estimation_and_geometric_verification(
         {
             "ransac": pycolmap.RANSACOptions(
                 {
-                    "max_num_trials": 20000,
-                    "min_inlier_ratio": 0.1,
+                    "max_num_trials": 50000,
+                    "min_inlier_ratio": 0.25,
                 }
             )
         }

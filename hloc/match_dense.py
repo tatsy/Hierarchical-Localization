@@ -1,7 +1,7 @@
 import pprint
 import argparse
 from types import SimpleNamespace
-from typing import Any, Set, Dict, List, Tuple, Union, Optional
+from typing import Any
 from pathlib import Path
 from itertools import chain
 from collections import Counter, defaultdict
@@ -140,13 +140,16 @@ def assign_keypoints(
     ref_bins: list[Counter] | None = None,
     scores: np.ndarray | None = None,
     cell_size: int | None = None,
-):
+) -> np.ndarray:
     if not update:
         # Without update this is just a NN search
         if len(other_cpts) == 0 or len(kpts) == 0:
             return np.full(len(kpts), -1)
+
         dist, kpt_ids = KDTree(np.array(other_cpts)).query(kpts)
-        valid = dist <= max_error
+        assert isinstance(dist, np.ndarray) and isinstance(kpt_ids, np.ndarray)
+
+        valid = np.less_equal(dist, max_error)
         kpt_ids[~valid] = -1
         return kpt_ids
     else:
@@ -167,10 +170,13 @@ def assign_keypoints(
                 other_cpts.append(cpt)
                 if ref_bins is not None:
                     ref_bins.append(Counter())
+
             if ref_bins is not None:
                 score = scores[i] if scores is not None else 1
                 ref_bins[cp_to_id[cpt]][bpt] += score
+
             kpt_ids.append(kid)
+
         return np.array(kpt_ids)
 
 
@@ -245,7 +251,7 @@ class ImagePairDataset(torch.utils.data.Dataset):
                 image = read_image(self.image_dir / name, self.conf.grayscale)
                 self.images[name], self.scales[name] = self.preprocess(image)
 
-    def preprocess(self, image: np.ndarray):
+    def preprocess(self, image: np.ndarray) -> tuple[torch.Tensor, np.ndarray]:
         image = image.astype(np.float32, copy=False)
         size = image.shape[:2][::-1]
         scale = np.array([1.0, 1.0])
@@ -253,7 +259,7 @@ class ImagePairDataset(torch.utils.data.Dataset):
         if self.conf.resize_max:
             scale = self.conf.resize_max / max(size)
             if scale < 1.0:
-                size_new = tuple(int(round(x * scale)) for x in size)
+                size_new = [int(round(x * scale)) for x in size]
                 image = resize_image(image, size_new, "cv2_area")
                 scale = np.array(size) / np.array(size_new)
 
@@ -262,18 +268,19 @@ class ImagePairDataset(torch.utils.data.Dataset):
             image = image[None]
         else:
             image = image.transpose((2, 0, 1))  # HxWxC to CxHxW
-        image = torch.from_numpy(image / 255.0).float()
+
+        out = torch.tensor(image / 255.0, dtype=torch.float32)
 
         # assure that the size is divisible by dfactor
-        size_new = tuple(
+        size_new = list(
             map(
                 lambda x: int(x // self.conf.dfactor * self.conf.dfactor),
-                image.shape[-2:],
+                out.shape[-2:],
             )
         )
-        image = F.resize(image, size=size_new)
+        out = F.resize(out, size=size_new)
         scale = np.array(size) / np.array(size_new)[::-1]
-        return image, scale
+        return out, scale
 
     def __len__(self):
         return len(self.pairs)
@@ -297,20 +304,27 @@ def match_dense(
     pairs: list[tuple[str, str]],
     image_dir: Path,
     match_path: Path,  # out
-    existing_refs: set[str] | None = set(),
+    existing_refs: set[str] = set(),
 ):
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
     Model = dynamic_load(matchers, conf["model"]["name"])
     model = Model(conf["model"]).eval().to(device)
 
     dataset = ImagePairDataset(image_dir, conf["preprocessing"], pairs)
     loader = torch.utils.data.DataLoader(
-        dataset, num_workers=16, batch_size=1, shuffle=False
+        dataset,
+        num_workers=4,
+        batch_size=1,
+        shuffle=False,
     )
 
-    logger.info("Performing dense matching...")
+    logger.info("Performing semi-dense matching...")
     with h5py.File(str(match_path), mode="a") as fd:
-        for data in tqdm(loader, smoothing=0.1):
+        for data in tqdm(loader, desc="Matching image pairs"):
             # load image-pair data
             image0, image1, scale0, scale1, (name0,), (name1,) = data
             scale0, scale1 = scale0[0].numpy(), scale1[0].numpy()
@@ -425,9 +439,10 @@ def aggregate_matches(
 
     if len(required_queries) > 0:
         logger.info(f"Aggregating keypoints for {len(required_queries)} images.")
+
     n_kps = 0
     with h5py.File(str(match_path), mode="a") as fd:
-        for name0, name1 in tqdm(pairs, smoothing=0.1):
+        for name0, name1 in tqdm(pairs, desc="Aggregating matches"):
             pair = names_to_pair(name0, name1)
             grp = fd[pair]
             assert isinstance(grp, h5py.Group)
@@ -492,20 +507,20 @@ def aggregate_matches(
                     kp_score = np.array(kp_score)[top_k]
 
                 # Write query keypoints
-                with h5py.File(feature_path, "a") as kfd:
+                with h5py.File(feature_path, mode="a") as kfd:
                     if name in kfd:
                         del kfd[name]
                     kgrp = kfd.create_group(name)
                     kgrp.create_dataset("keypoints", data=cpdict[name])
                     kgrp.create_dataset("score", data=kp_score)
                     n_kps += cpdict[name].shape[0]
+
                 del bindict[name]
 
     if len(required_queries) > 0:
         avg_kp_per_image = round(n_kps / len(required_queries), 1)
-        logger.info(
-            f"Finished assignment, found {avg_kp_per_image} keypoints/image (avg.), total {n_kps}."
-        )
+        logger.info(f"Found {avg_kp_per_image} keypoints/image (avg.), total {n_kps}.")
+
     return cpdict
 
 
@@ -621,10 +636,10 @@ def main(
     )
 
     if features is None:
-        features = Path("feats_")
+        features = Path(f"{conf['model']['name']}.h5")
 
     if isinstance(features, Path):
-        features_q = Path(f"{features}{conf['output']}.h5")
+        features_q = Path(features.name)
 
     if matches is None:
         matches = Path(f"{conf['output']}.h5")
@@ -643,7 +658,14 @@ def main(
         raise TypeError(str(features_ref))
 
     match_and_assign(
-        conf, pairs, image_dir, matches, features_q, features_ref, max_kps, overwrite
+        conf,
+        pairs,
+        image_dir,
+        matches,
+        features_q,
+        features_ref,
+        max_kps,
+        overwrite,
     )
 
     return features_q, matches
