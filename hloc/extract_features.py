@@ -349,8 +349,10 @@ def main(
 
             if as_half:
                 for k in pred:
-                    if isinstance(pred[k], np.ndarray) and np.issubdtype(
-                        pred[k].dtype, np.floating
+                    if (
+                        isinstance(pred[k], np.ndarray)
+                        and np.issubdtype(pred[k].dtype, np.floating)
+                        and k != "keypoints"
                     ):
                         pred[k] = pred[k].astype(np.float16)
 
